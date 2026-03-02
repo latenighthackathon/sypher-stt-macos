@@ -1486,7 +1486,7 @@ class SettingsWindow:
         self._latest_version: Optional[str] = None
 
     def run(self):
-        from Foundation import NSObject, NSMakeRect
+        from Foundation import NSObject, NSMakeRect, NSTimer
         from AppKit import (
             NSApplication, NSWindow, NSScreen,
             NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
