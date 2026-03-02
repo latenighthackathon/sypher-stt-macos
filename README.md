@@ -31,6 +31,9 @@ Sypher STT is designed from the ground up with privacy as a non-negotiable const
 - **Usage stats are local-only and opt-out.** The Stats tab records only aggregate counts — words, characters, and audio duration per day. No transcribed text, no keystrokes, no conversation history are ever logged, stored, or transmitted. Toggle collection off from **Settings → Stats** and nothing is written anywhere.
 - **Everything stays on your machine.** Config, stats, and logs live under `~/Library/Application Support/SypherSTT/` and `~/Library/Logs/SypherSTT/` with user-only (`600`) file permissions and symlink-safe writes (`O_NOFOLLOW`).
 
+![App log output](screenshots/minimal-app-logs.png)
+*Logs are privacy minded and only show # of characters transcribed + duration of the input audio*
+
 ---
 
 ## Quick Start
@@ -227,7 +230,6 @@ The log rotates automatically (5 MB × 3 backups) and records only app lifecycle
 
 ![Stats tab](screenshots/stats-tab.png)
 
-![App log output](screenshots/minimal-app-logs.png)
 
 ---
 
