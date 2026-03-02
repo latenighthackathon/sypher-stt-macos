@@ -231,16 +231,16 @@ Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Upd
 
 ### How to update
 
-1. Quit Sypher STT from the menu bar icon → **Quit**
-2. Open Terminal, `cd` into the project folder, then run:
+1. Copy the command:
 
 ```bash
-cd sypher-stt-macos
-git pull
-./run.sh
+cd sypher-stt-macos && git pull && ./run.sh
 ```
 
-`run.sh` picks up any new dependencies and relaunches the app.
+2. Quit Sypher STT from the menu bar icon → **Quit**
+3. Open Terminal, paste, and press Enter
+
+`run.sh` picks up any new dependencies and relaunches the app. [Full update guide →](https://github.com/latenighthackathon/sypher-stt-macos#updating)
 
 ---
 

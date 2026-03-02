@@ -616,12 +616,13 @@ nav { padding: 0 8px; flex: 1; }
     <div class="update-badge-sub" id="update-badge-ver">How to update →</div>
   </div>
   <div id="update-instructions" class="update-instructions">
-    <div>1. Quit: menu bar → <strong style="color:#d1d5db">Quit</strong></div>
-    <div>2. Open <a class="update-inst-link" style="margin:0" href="#" onclick="post('open_terminal',{});return false;">Terminal</a> and run:</div>
+    <div>1. Copy the command below</div>
     <div class="update-inst-code-wrap">
       <div class="update-inst-code">cd sypher-stt-macos<br>git pull &amp;&amp; ./run.sh</div>
       <button class="update-inst-copy" onclick="copyUpdateCmd(this)">Copy</button>
     </div>
+    <div>2. Quit: menu bar → <strong style="color:#d1d5db">Quit</strong></div>
+    <div>3. Open <a class="update-inst-link" style="margin:0" href="#" onclick="post('open_terminal',{});return false;">Terminal</a> and paste</div>
     <a class="update-inst-link" href="#" onclick="post('open_update_guide',{});return false;">View update guide on GitHub →</a>
   </div>
 </div>
