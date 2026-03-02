@@ -8,6 +8,6 @@ Fully offline using local Whisper models via faster-whisper.
 # immediately reflect the correct version on next startup, without relying
 # on importlib.metadata (which reads from the .dist-info directory that
 # is not replaced during the in-place update).
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 __app_name__ = "Sypher STT"
