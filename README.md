@@ -164,6 +164,27 @@ python -m sypher_stt.app
 
 ---
 
+## Updating
+
+### Check for updates
+
+Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Updates** button. If a newer version is available, an update badge appears with instructions.
+
+### How to update
+
+1. Copy the command:
+
+```bash
+cd sypher-stt-macos && git pull && ./run.sh
+```
+
+2. Quit Sypher STT from the menu bar icon → **Quit**
+3. Open Terminal, paste, and press Enter
+
+`run.sh` picks up any new dependencies and relaunches the app. [Full update guide →](https://github.com/latenighthackathon/sypher-stt-macos#updating)
+
+---
+
 ## Requirements
 
 - **macOS 15 Sequoia or macOS 26 Tahoe** (Apple Silicon or Intel)
@@ -220,27 +241,6 @@ Sypher STT uses `pynput` to listen for a global hotkey. macOS requires **Accessi
 3. Restart Sypher STT
 
 If you skip this step, the hotkey won't fire (but the menu bar icon will still appear). The setup wizard will guide you through this on first run.
-
----
-
-## Updating
-
-### Check for updates
-
-Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Updates** button. If a newer version is available, an update badge appears with instructions.
-
-### How to update
-
-1. Copy the command:
-
-```bash
-cd sypher-stt-macos && git pull && ./run.sh
-```
-
-2. Quit Sypher STT from the menu bar icon → **Quit**
-3. Open Terminal, paste, and press Enter
-
-`run.sh` picks up any new dependencies and relaunches the app. [Full update guide →](https://github.com/latenighthackathon/sypher-stt-macos#updating)
 
 ---
 
