@@ -1899,13 +1899,16 @@ class SettingsWindow:
     def _run_update(self, ver: str) -> None:
         """Download and install the update in a background thread.
 
-        Copies new .py files over the current editable-install package directory
-        so __file__ (and therefore MODELS_DIR) never changes.  This prevents the
-        setup wizard from re-running and models from needing to be re-downloaded.
+        Always copies new .py files to src/sypher_stt/ in the project root
+        (recorded by run.sh in APPDATA_DIR/.project_root), then re-runs
+        pip install -e to restore the editable install.  This ensures __file__
+        always resolves to src/ after restart regardless of prior install state.
         """
         import importlib
         import importlib.metadata
         import shutil
+        import subprocess as _sp
+        import sys as _sys
         import tempfile
         import urllib.request
         import zipfile
@@ -1917,6 +1920,15 @@ class SettingsWindow:
             # ── Locate current package directory ─────────────────────────────
             import sypher_stt as _pkg_ref
             pkg_dir = Path(_pkg_ref.__file__).parent
+
+            # ── Determine project root (written by run.sh on every launch) ────
+            # This is the only reliable way to find src/ regardless of whether
+            # the current install is editable (src/) or non-editable (site-packages/).
+            _root_file = APPDATA_DIR / ".project_root"
+            if _root_file.exists():
+                project_root = Path(_root_file.read_text(encoding="utf-8").strip())
+            else:
+                project_root = pkg_dir.parent.parent  # fallback
 
             # ── Download source archive ───────────────────────────────────────
             _notify("Downloading update…")
@@ -1954,14 +1966,36 @@ class SettingsWindow:
                 if new_pkg is None:
                     raise RuntimeError("sypher_stt not found in update archive.")
 
-                # Replace package files in-place — __file__ location unchanged
-                shutil.copytree(str(new_pkg), str(pkg_dir), dirs_exist_ok=True)
+                # Always copy to src/sypher_stt/ in the project root so both
+                # editable and non-editable installs receive the new code after restart.
+                target_pkg_dir = project_root / "src" / "sypher_stt"
+                if target_pkg_dir.parent.exists():
+                    shutil.copytree(str(new_pkg), str(target_pkg_dir), dirs_exist_ok=True)
+                else:
+                    # src/ layout not present — copy to wherever __file__ currently lives
+                    shutil.copytree(str(new_pkg), str(pkg_dir), dirs_exist_ok=True)
 
-                # Update pyproject.toml so the project version reflects the new release
+                # Copy pyproject.toml to project root
                 new_pyproject = new_pkg.parent.parent / "pyproject.toml"
-                old_pyproject = pkg_dir.parent.parent / "pyproject.toml"
+                old_pyproject = project_root / "pyproject.toml"
                 if new_pyproject.exists() and old_pyproject.exists():
                     shutil.copy2(str(new_pyproject), str(old_pyproject))
+
+            # ── Re-establish editable install ─────────────────────────────────
+            # Ensures __file__ → src/ after restart even if a non-editable
+            # install had shadowed it.  pip install -e removes the stale
+            # site-packages copy and writes an editable link to src/ instead.
+            _notify("Finalizing update…")
+            try:
+                _sp.run(
+                    [_sys.executable, "-m", "pip", "install",
+                     "-e", f"{project_root}[download]", "--quiet"],
+                    capture_output=True,
+                    timeout=120,
+                )
+                log.debug("Editable install restored at %s", project_root)
+            except Exception as _pip_e:
+                log.warning("pip re-install failed (non-fatal): %s", _pip_e)
 
             # ── Bump dist-info version (prevents update badge re-appearing) ──
             try:

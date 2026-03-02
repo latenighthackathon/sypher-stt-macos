@@ -21,5 +21,10 @@ if [[ ! -x "$PYTHON" ]]; then
     echo ""
 fi
 
+# ── Save project root so the in-app updater can always find src/ ─────────────
+APPDATA_DIR="$HOME/Library/Application Support/SypherSTT"
+mkdir -p "$APPDATA_DIR"
+printf '%s' "$SCRIPT_DIR" > "$APPDATA_DIR/.project_root"
+
 # ── Launch ───────────────────────────────────────────────────────────────────
 exec "$PYTHON" -m sypher_stt.app

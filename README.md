@@ -223,6 +223,24 @@ If you skip this step, the hotkey won't fire (but the menu bar icon will still a
 
 ---
 
+## Updating
+
+### In-app (recommended)
+
+Open the menu bar icon → **Settings** → **General**. If a newer version is available, an update badge appears. Click **Update** — the app downloads the release, installs it in-place, restores the editable install, and restarts automatically.
+
+### Manual
+
+```bash
+cd sypher-stt-macos
+git pull
+./run.sh
+```
+
+`run.sh` re-runs `pip install -e .` on first launch after a pull, picking up any new dependencies. The app restarts with the latest code.
+
+---
+
 ## Configuration
 
 Settings are stored in:
