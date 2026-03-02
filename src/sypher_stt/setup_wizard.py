@@ -21,6 +21,7 @@ from pathlib import Path
 from sypher_stt.constants import (
     APPDATA_DIR as CONFIG_DIR,
     CONFIG_PATH,
+    MODELS_DIR,
     SETUP_FLAG,
 )
 from sypher_stt.hotkeys import validate_hotkey
