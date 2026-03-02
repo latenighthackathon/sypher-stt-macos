@@ -225,11 +225,11 @@ If you skip this step, the hotkey won't fire (but the menu bar icon will still a
 
 ## Updating
 
-### In-app (recommended)
+### Check for updates
 
-Open the menu bar icon → **Settings** → **General**. If a newer version is available, an update badge appears. Click **Update** — the app downloads the release, installs it in-place, restores the editable install, and restarts automatically.
+Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Updates** button. If a newer version is available, an update badge appears with instructions.
 
-### Manual
+### How to update
 
 1. Quit Sypher STT from the menu bar icon → **Quit**
 2. Open Terminal, `cd` into the project folder, then run:
