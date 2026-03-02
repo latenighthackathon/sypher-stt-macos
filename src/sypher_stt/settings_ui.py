@@ -1934,6 +1934,15 @@ class SettingsWindow:
                 zip_path.write_bytes(zip_bytes)
 
                 with zipfile.ZipFile(zip_path) as zf:
+                    # Guard against zip-slip: reject any entry whose resolved
+                    # destination falls outside the temp directory.
+                    tmp_resolved = str(tmp_path.resolve())
+                    for info in zf.infolist():
+                        dest = (tmp_path / info.filename).resolve()
+                        if not str(dest).startswith(tmp_resolved + "/") and str(dest) != tmp_resolved:
+                            raise RuntimeError(
+                                f"Unsafe path in update archive: {info.filename!r}"
+                            )
                     zf.extractall(tmp_path)
 
                 # GitHub archive: <repo>-<ver>/src/sypher_stt/
