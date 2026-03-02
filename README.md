@@ -198,6 +198,10 @@ The Settings panel has four tabs:
 | **Permissions** | Live status of Accessibility and Microphone grants; links to open System Settings |
 | **Stats** | Toggle stats collection; word/character/audio/time-saved cards; filter by week / month / 3 months / all time; bar chart; typing speed test; clear stats; view or clear log |
 
+![Settings tab](screenshots/settings-tab.png)
+
+![Record shortcut overlay](screenshots/hotkeys.png)
+
 ---
 
 ### Stats
@@ -220,6 +224,10 @@ The Stats tab tracks usage over time. All data is stored exclusively in:
 - **View log file** — opens the log in your default text editor
 
 The log rotates automatically (5 MB × 3 backups) and records only app lifecycle events and per-transcription summaries (character count, audio duration).
+
+![Stats tab](screenshots/stats-tab.png)
+
+![App log output](screenshots/minimal-app-logs.png)
 
 ---
 
