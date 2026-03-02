@@ -162,15 +162,15 @@ Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Upd
 
 ### How to update
 
-1. Copy the command:
-
-```bash
-cd sypher-stt-macos && git pull && ./run.sh
-```
-
+1. In Settings, copy the update command (includes your full install path)
 2. Quit Sypher STT from the menu bar icon → **Quit**
 3. Quit your current Terminal window and open a new one
 4. Paste the command and press Enter
+
+```bash
+# The copied command will look like:
+cd "/full/path/to/sypher-stt-macos" && git pull && ./run.sh
+```
 
 ---
 

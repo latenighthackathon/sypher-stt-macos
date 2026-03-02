@@ -1204,7 +1204,7 @@ function toggleUpdateInstructions() {
 }
 
 function copyUpdateCmd(btn) {
-  post('copy_to_clipboard', {text: 'cd sypher-stt-macos\ngit pull && ./run.sh'});
+  post('copy_update_cmd', {});
   const orig = btn.textContent;
   btn.textContent = 'Copied!';
   setTimeout(() => { btn.textContent = orig; }, 2000);
@@ -1865,6 +1865,19 @@ class SettingsWindow:
             try:
                 import pyperclip
                 pyperclip.copy(body.get("text", ""))
+            except Exception as e:
+                log.warning("Clipboard copy failed: %s", e)
+
+        elif action == "copy_update_cmd":
+            try:
+                import pyperclip
+                root_file = _APPDATA_DIR / ".project_root"
+                if root_file.exists():
+                    proj = root_file.read_text(encoding="utf-8").strip()
+                    cmd = f'cd "{proj}" && git pull && ./run.sh'
+                else:
+                    cmd = "git pull && ./run.sh"
+                pyperclip.copy(cmd)
             except Exception as e:
                 log.warning("Clipboard copy failed: %s", e)
 
