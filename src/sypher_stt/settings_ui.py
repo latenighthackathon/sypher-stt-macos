@@ -1899,33 +1899,81 @@ class SettingsWindow:
         ).start()
 
     def _run_update(self, ver: str) -> None:
-        """Download and install the update in a background thread."""
+        """Download and install the update in a background thread.
+
+        Copies new .py files over the current editable-install package directory
+        so __file__ (and therefore MODELS_DIR) never changes.  This prevents the
+        setup wizard from re-running and models from needing to be re-downloaded.
+        """
+        import importlib
+        import importlib.metadata
+        import shutil
+        import tempfile
+        import urllib.request
+        import zipfile
+
         def _notify(msg: str) -> None:
             self._js_queue.put(f"showUpdateProgress({json.dumps(msg)})")
 
         try:
+            # ── Locate current package directory ─────────────────────────────
+            import sypher_stt as _pkg_ref
+            pkg_dir = Path(_pkg_ref.__file__).parent
+
+            # ── Download source archive ───────────────────────────────────────
             _notify("Downloading update…")
             url = _trusted_release_zip_url(ver)
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--quiet",
-                    "--disable-pip-version-check",
-                    "--no-deps",
-                    url,
-                ],
-                capture_output=True, text=True, timeout=300,
-            )
-            if result.returncode != 0:
-                raise RuntimeError((result.stderr or result.stdout).strip()[:300])
+            with urllib.request.urlopen(url, timeout=120) as resp:
+                zip_bytes = resp.read()
 
-            # Write restart flag so the main app process detects and restarts
+            # ── Extract and copy in-place ─────────────────────────────────────
+            _notify("Installing update…")
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                zip_path = tmp_path / "update.zip"
+                zip_path.write_bytes(zip_bytes)
+
+                with zipfile.ZipFile(zip_path) as zf:
+                    zf.extractall(tmp_path)
+
+                # GitHub archive: <repo>-<ver>/src/sypher_stt/
+                new_pkg = None
+                for entry in tmp_path.iterdir():
+                    candidate = entry / "src" / "sypher_stt"
+                    if candidate.is_dir():
+                        new_pkg = candidate
+                        break
+
+                if new_pkg is None:
+                    raise RuntimeError("sypher_stt not found in update archive.")
+
+                # Replace package files in-place — __file__ location unchanged
+                shutil.copytree(str(new_pkg), str(pkg_dir), dirs_exist_ok=True)
+
+                # Update pyproject.toml so the project version reflects the new release
+                new_pyproject = new_pkg.parent.parent / "pyproject.toml"
+                old_pyproject = pkg_dir.parent.parent / "pyproject.toml"
+                if new_pyproject.exists() and old_pyproject.exists():
+                    shutil.copy2(str(new_pyproject), str(old_pyproject))
+
+            # ── Bump dist-info version (prevents update badge re-appearing) ──
+            try:
+                dist = importlib.metadata.distribution("sypher-stt")
+                meta_file = Path(str(dist.locate_file("METADATA")))
+                if meta_file.exists():
+                    content = meta_file.read_text(encoding="utf-8")
+                    content = re.sub(
+                        r"^Version:.*$", f"Version: {ver}",
+                        content, count=1, flags=re.MULTILINE,
+                    )
+                    meta_file.write_text(content, encoding="utf-8")
+            except Exception as e:
+                log.debug("Could not update dist-info version: %s", e)
+
+            # ── Signal main app to restart ────────────────────────────────────
             _secure_write_text(_RESTART_FLAG, ver)
-
             self._js_queue.put("showUpdateDone()")
+
         except Exception as e:
             log.error("Update failed: %s", e)
             _notify(f"Update failed: {e}")
