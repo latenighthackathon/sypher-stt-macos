@@ -32,6 +32,7 @@ Sypher STT is designed from the ground up with privacy as a non-negotiable const
 - **Everything stays on your machine.** Config, stats, and logs live under `~/Library/Application Support/SypherSTT/` and `~/Library/Logs/SypherSTT/` with user-only (`600`) file permissions and symlink-safe writes (`O_NOFOLLOW`).
 
 ![App log output](screenshots/minimal-app-logs.png)
+
 *Logs are privacy minded and only show # of characters transcribed + duration of the input audio*
 
 ---
