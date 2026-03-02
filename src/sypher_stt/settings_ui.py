@@ -11,6 +11,7 @@ Run standalone:  python -m sypher_stt.settings_ui
 import json
 import logging
 import os
+import queue
 import re
 import subprocess
 import sys
@@ -1478,8 +1479,9 @@ class SettingsWindow:
         self._recorder_stop: Optional[threading.Event] = None
         self._rec_dispatcher = None
         self._recording = False  # True while key recorder is active
-        self._update_notifier = None  # NSObject for main-thread JS dispatch
-        self._model_notifier = None   # NSObject for model download callbacks
+        self._js_queue: queue.SimpleQueue = queue.SimpleQueue()  # thread-safe JS dispatch
+        self._NSTimer = None          # stored in run() for use in _on_loaded
+        self._js_poll_timer = None    # strong ref to repeating NSTimer
         self._downloading = False
         self._latest_version: Optional[str] = None
 
@@ -1523,38 +1525,21 @@ class SettingsWindow:
         self._ns_refs.append(rec_dispatcher)
         self._rec_dispatcher = rec_dispatcher
 
-        # ── Cross-thread dispatcher: background thread → main thread JS call ──
-        class UpdateNotifier(NSObject):
-            def showBadge_(self, ver_str):
-                settings_ref._js(f"showUpdateBadge({json.dumps(str(ver_str))})")
+        # ── Cross-thread JS dispatcher: NSTimer polls a SimpleQueue ──────────
+        # Replaces performSelectorOnMainThread which is unreliable on Python 3.13.
+        class JSPoller(NSObject):
+            def poll_(self, timer):
+                try:
+                    while True:
+                        script = settings_ref._js_queue.get_nowait()
+                        settings_ref._js(script)
+                except queue.Empty:
+                    pass
 
-            def showProgress_(self, msg_str):
-                settings_ref._js(f"showUpdateProgress({json.dumps(str(msg_str))})")
-
-            def showDone_(self, _):
-                settings_ref._js("showUpdateDone()")
-
-        update_notifier = UpdateNotifier.alloc().init()
-        self._ns_refs.append(update_notifier)
-        self._update_notifier = update_notifier
-
-        # ── Cross-thread dispatcher: model download → main thread JS call ──
-        class ModelNotifier(NSObject):
-            def showDone_(self, id_str):
-                local = _local_models()
-                settings_ref._js(
-                    f"modelDownloadDone({json.dumps(str(id_str))}, {json.dumps(local)})"
-                )
-
-            def showError_(self, err_str):
-                settings_ref._downloading = False
-                settings_ref._js(
-                    f"modelDownloadError('', {json.dumps(str(err_str))})"
-                )
-
-        model_notifier = ModelNotifier.alloc().init()
-        self._ns_refs.append(model_notifier)
-        self._model_notifier = model_notifier
+        js_poller = JSPoller.alloc().init()
+        self._ns_refs.append(js_poller)
+        self._js_poller = js_poller
+        self._NSTimer = NSTimer
 
         msg_handler = MsgHandler.alloc().init()
         self._ns_refs.append(msg_handler)
@@ -1663,6 +1648,12 @@ class SettingsWindow:
         dev_json = json.dumps(dev_opts)
         ver = json.dumps(str(_VERSION))
         self._js(f"init({cfg_json}, {dev_json}, {ver})")
+
+        # Start NSTimer to drain _js_queue on the main thread every 0.25s
+        if self._NSTimer is not None and self._js_poll_timer is None:
+            self._js_poll_timer = self._NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                0.25, self._js_poller, "poll:", None, True
+            )
 
         # Check for update in the background (one-shot, non-blocking)
         threading.Thread(target=self._check_for_update, daemon=True).start()
@@ -1892,10 +1883,7 @@ class SettingsWindow:
                 return
             if _parse_version(clean) > _parse_version(_VERSION):
                 self._latest_version = clean
-                if self._update_notifier is not None:
-                    self._update_notifier.performSelectorOnMainThread_withObject_waitUntilDone_(
-                        "showBadge:", f"v{clean}", False
-                    )
+                self._js_queue.put(f"showUpdateBadge({json.dumps('v' + clean)})")
         except Exception as e:
             log.debug("Update check: %s", e)
 
@@ -1913,10 +1901,7 @@ class SettingsWindow:
     def _run_update(self, ver: str) -> None:
         """Download and install the update in a background thread."""
         def _notify(msg: str) -> None:
-            if self._update_notifier is not None:
-                self._update_notifier.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    "showProgress:", msg, False
-                )
+            self._js_queue.put(f"showUpdateProgress({json.dumps(msg)})")
 
         try:
             _notify("Downloading update…")
@@ -1940,10 +1925,7 @@ class SettingsWindow:
             # Write restart flag so the main app process detects and restarts
             _secure_write_text(_RESTART_FLAG, ver)
 
-            if self._update_notifier is not None:
-                self._update_notifier.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    "showDone:", "", False
-                )
+            self._js_queue.put("showUpdateDone()")
         except Exception as e:
             log.error("Update failed: %s", e)
             _notify(f"Update failed: {e}")
@@ -2017,15 +1999,11 @@ class SettingsWindow:
                 local_dir_use_symlinks=False,
             )
             self._downloading = False
-            if self._model_notifier is not None:
-                self._model_notifier.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    "showDone:", model_id, False
-                )
+            local = _local_models()
+            self._js_queue.put(f"modelDownloadDone({json.dumps(model_id)}, {json.dumps(local)})")
         except Exception as e:
-            if self._model_notifier is not None:
-                self._model_notifier.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    "showError:", str(e), False
-                )
+            self._downloading = False
+            self._js_queue.put(f"modelDownloadError('', {json.dumps(str(e))})")
 
     def _start_recorder(self):
         """Key capture is handled by JS keydown events; this just marks recording active."""
