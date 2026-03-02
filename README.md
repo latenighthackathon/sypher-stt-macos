@@ -4,6 +4,97 @@
 
 ---
 
+## How It Works
+
+### Transcription pipeline
+
+```
+Hold hotkey → AudioRecorder (sounddevice, 16kHz) → Whisper (faster-whisper, CPU)
+           → pyperclip + Cmd+V → text appears in focused window
+```
+
+1. **Hold your hotkey** — audio capture starts immediately (sounddevice, 16 kHz mono).
+2. **Release** — recording stops, the audio buffer is passed to Faster Whisper running on-device.
+3. **Transcription** — Whisper returns the text in milliseconds to a few seconds depending on your chosen model.
+4. **Auto-paste** — the text is written to the clipboard and `Cmd+V` is simulated so it appears wherever your cursor is.
+
+Everything runs in-process on your Mac. No network requests are made at any point during recording or transcription.
+
+---
+
+### Menu bar
+
+The menu bar icon changes state as you use the app:
+
+| Icon | State |
+|------|-------|
+| 🎙 | Ready — waiting for hotkey |
+| 🔴 | Recording |
+| ⏳ | Transcribing |
+
+**Menu items:**
+
+| Item | Description |
+|------|-------------|
+| Status line | Shows current state and active hotkey |
+| Version | `Sypher STT v<version>` |
+| **Settings** | Opens the 4-tab settings panel |
+| **Setup Wizard** | Re-runs the first-run wizard |
+| **Uninstall** | Removes all app data and config |
+| **Quit** | Exits the app |
+
+---
+
+### Settings
+
+The Settings panel has four tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Defaults** | Hotkey picker, microphone device, Whisper model selection (download or switch) |
+| **Sounds** | Toggle sound feedback; pick start / stop / error sounds from macOS system sounds |
+| **Permissions** | Live status of Accessibility and Microphone grants; links to open System Settings |
+| **Stats** | Toggle stats collection; word/character/audio/time-saved cards; filter by week / month / 3 months / all time; bar chart; typing speed test; clear stats; view or clear log |
+
+<div align="center">
+
+![Settings tab](screenshots/settings-tab.png)
+
+![Record shortcut overlay](screenshots/hotkeys.png)
+
+</div>
+
+---
+
+### Stats
+
+The Stats tab tracks usage over time. All data is stored exclusively in:
+
+```
+~/Library/Application Support/SypherSTT/stats.json
+```
+
+**Recorded per calendar day:** word count, character count, audio duration. No transcribed text, keystrokes, or conversation history is ever written.
+
+**Optional calibration:**
+- **Typing speed** — run the built-in WPM test; your score is used to compute the *Est. time saved* card.
+- **Earnings rate** — enter an hourly rate or annual salary (÷ 2,080 hrs/year) to power the *Est. value saved* card. Stored locally only, never transmitted.
+
+**From Settings → Stats you can:**
+- **Clear stats** — wipes all daily counts (typing speed and earnings rate are preserved)
+- **Clear log** — empties `~/Library/Logs/SypherSTT/sypher_stt.log`
+- **View log file** — opens the log in your default text editor
+
+The log rotates automatically (5 MB × 3 backups) and records only app lifecycle events and per-transcription summaries (character count, audio duration).
+
+<div align="center">
+
+![Stats tab](screenshots/stats-tab.png)
+
+</div>
+
+---
+
 ## Features
 
 - **Menu bar app** — no Dock icon, lives quietly in the status bar
@@ -151,98 +242,6 @@ Settings are stored in:
 | `record_stats` | `true` | Record per-session word count, character count, and audio duration. When `false`, nothing is written to `stats.json` or the log. |
 
 Changes are picked up within 3 seconds without restarting. You can also edit settings via the **Settings** menu item in the menu bar.
-
----
-
-## How It Works
-
-### Transcription pipeline
-
-```
-Hold hotkey → AudioRecorder (sounddevice, 16kHz) → Whisper (faster-whisper, CPU)
-           → pyperclip + Cmd+V → text appears in focused window
-```
-
-1. **Hold your hotkey** — audio capture starts immediately (sounddevice, 16 kHz mono).
-2. **Release** — recording stops, the audio buffer is passed to Faster Whisper running on-device.
-3. **Transcription** — Whisper returns the text in milliseconds to a few seconds depending on your chosen model.
-4. **Auto-paste** — the text is written to the clipboard and `Cmd+V` is simulated so it appears wherever your cursor is.
-
-Everything runs in-process on your Mac. No network requests are made at any point during recording or transcription.
-
----
-
-### Menu bar
-
-The menu bar icon changes state as you use the app:
-
-| Icon | State |
-|------|-------|
-| 🎙 | Ready — waiting for hotkey |
-| 🔴 | Recording |
-| ⏳ | Transcribing |
-
-**Menu items:**
-
-| Item | Description |
-|------|-------------|
-| Status line | Shows current state and active hotkey |
-| Version | `Sypher STT v<version>` |
-| **Settings** | Opens the 4-tab settings panel |
-| **Setup Wizard** | Re-runs the first-run wizard |
-| **Uninstall** | Removes all app data and config |
-| **Quit** | Exits the app |
-
----
-
-### Settings
-
-The Settings panel has four tabs:
-
-| Tab | Contents |
-|-----|----------|
-| **Defaults** | Hotkey picker, microphone device, Whisper model selection (download or switch) |
-| **Sounds** | Toggle sound feedback; pick start / stop / error sounds from macOS system sounds |
-| **Permissions** | Live status of Accessibility and Microphone grants; links to open System Settings |
-| **Stats** | Toggle stats collection; word/character/audio/time-saved cards; filter by week / month / 3 months / all time; bar chart; typing speed test; clear stats; view or clear log |
-
-<div align="center">
-
-![Settings tab](screenshots/settings-tab.png)
-
-![Record shortcut overlay](screenshots/hotkeys.png)
-
-</div>
-
----
-
-### Stats
-
-The Stats tab tracks usage over time. All data is stored exclusively in:
-
-```
-~/Library/Application Support/SypherSTT/stats.json
-```
-
-**Recorded per calendar day:** word count, character count, audio duration. No transcribed text, keystrokes, or conversation history is ever written.
-
-**Optional calibration:**
-- **Typing speed** — run the built-in WPM test; your score is used to compute the *Est. time saved* card.
-- **Earnings rate** — enter an hourly rate or annual salary (÷ 2,080 hrs/year) to power the *Est. value saved* card. Stored locally only, never transmitted.
-
-**From Settings → Stats you can:**
-- **Clear stats** — wipes all daily counts (typing speed and earnings rate are preserved)
-- **Clear log** — empties `~/Library/Logs/SypherSTT/sypher_stt.log`
-- **View log file** — opens the log in your default text editor
-
-The log rotates automatically (5 MB × 3 backups) and records only app lifecycle events and per-transcription summaries (character count, audio duration).
-
-<div align="center">
-
-![Stats tab](screenshots/stats-tab.png)
-
-</div>
-
 
 ---
 
