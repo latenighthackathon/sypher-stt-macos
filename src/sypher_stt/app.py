@@ -12,6 +12,7 @@ Architecture note:
 
 import logging
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -323,6 +324,10 @@ class SypherSTT:
 
 def main() -> None:
     """Application entry point."""
+    # Ignore SIGHUP so the process survives terminal close and post-update
+    # parent exit without being killed by the inherited process group signal.
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
     # Menu-bar-only (no Dock icon). Must be set before rumps touches NSApp.
     try:
         from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
@@ -368,13 +373,15 @@ def main() -> None:
         guard.release()
 
     # Spawn a fresh process after the lock is released so it can acquire it.
-    # subprocess.Popen (new session) avoids inheriting Cocoa Mach ports.
+    # Do NOT use start_new_session=True: setsid() on macOS can place the child
+    # in a different Mach bootstrap namespace from the Window Server, which
+    # prevents NSStatusItem (menu bar icon) from appearing. SIGHUP survival is
+    # handled by the SIG_IGN set at the top of main() instead.
     if restart_needed:
         log.info("Spawning fresh process for update restart.")
         subprocess.Popen(
             [sys.executable, "-m", "sypher_stt.app"],
             close_fds=True,
-            start_new_session=True,
         )
 
 
