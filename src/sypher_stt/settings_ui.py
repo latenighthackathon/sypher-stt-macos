@@ -1959,7 +1959,10 @@ class SettingsWindow:
             # ── Bump dist-info version (prevents update badge re-appearing) ──
             try:
                 dist = importlib.metadata.distribution("sypher-stt")
-                meta_file = Path(str(dist.locate_file("METADATA")))
+                # dist._path is the .dist-info directory itself; locate_file()
+                # incorrectly returns its parent (site-packages), so use _path
+                # directly to reach the METADATA file inside it.
+                meta_file = Path(str(dist._path)) / "METADATA"
                 if meta_file.exists():
                     content = meta_file.read_text(encoding="utf-8")
                     content = re.sub(
@@ -1967,6 +1970,7 @@ class SettingsWindow:
                         content, count=1, flags=re.MULTILINE,
                     )
                     meta_file.write_text(content, encoding="utf-8")
+                    log.debug("Updated dist-info version to %s", ver)
             except Exception as e:
                 log.debug("Could not update dist-info version: %s", e)
 
