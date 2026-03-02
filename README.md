@@ -1,6 +1,6 @@
 # Sypher STT — macOS
 
-> Privacy-first, push-to-talk voice dictation for macOS. Hold a key, speak, release — transcribed text is pasted instantly. Fully offline: transcription runs locally via Faster Whisper with no API calls, no cloud services, and no audio ever leaving your machine. Free and open source — no licensing, no registration, no account required.
+> Privacy-first push-to-talk dictation for macOS. Hold a key, speak, release — text is pasted instantly. Fully offline using local Whisper models. Free and open source.
 
 ---
 
@@ -13,18 +13,14 @@ Hold hotkey → AudioRecorder (sounddevice, 16kHz) → Whisper (faster-whisper, 
            → pyperclip + Cmd+V → text appears in focused window
 ```
 
-1. **Hold your hotkey** — audio capture starts immediately (sounddevice, 16 kHz mono).
-2. **Release** — recording stops, the audio buffer is passed to Faster Whisper running on-device.
-3. **Transcription** — Whisper returns the text in milliseconds to a few seconds depending on your chosen model.
-4. **Auto-paste** — the text is written to the clipboard and `Cmd+V` is simulated so it appears wherever your cursor is.
-
-Everything runs in-process on your Mac. No network requests are made at any point during recording or transcription.
+1. **Hold your hotkey** — audio capture starts immediately (16 kHz mono).
+2. **Release** — recording stops; audio is passed to Faster Whisper on-device.
+3. **Transcription** — text is returned in milliseconds to a few seconds depending on your model.
+4. **Auto-paste** — text is written to the clipboard and `Cmd+V` is simulated into the focused window.
 
 ---
 
 ### Menu bar
-
-The menu bar icon changes state as you use the app:
 
 | Icon | State |
 |------|-------|
@@ -47,8 +43,6 @@ The menu bar icon changes state as you use the app:
 
 ### Settings
 
-The Settings panel has four tabs:
-
 | Tab | Contents |
 |-----|----------|
 | **Defaults** | Hotkey picker, microphone device, Whisper model selection (download or switch) |
@@ -68,24 +62,24 @@ The Settings panel has four tabs:
 
 ### Stats
 
-The Stats tab tracks usage over time. All data is stored exclusively in:
+All stats are stored locally in:
 
 ```
 ~/Library/Application Support/SypherSTT/stats.json
 ```
 
-**Recorded per calendar day:** word count, character count, audio duration. No transcribed text, keystrokes, or conversation history is ever written.
+**Recorded per day:** word count, character count, audio duration. No transcribed text or keystrokes are ever written.
 
 **Optional calibration:**
-- **Typing speed** — run the built-in WPM test; your score is used to compute the *Est. time saved* card.
-- **Earnings rate** — enter an hourly rate or annual salary (÷ 2,080 hrs/year) to power the *Est. value saved* card. Stored locally only, never transmitted.
+- **Typing speed** — built-in WPM test; result powers the *Est. time saved* card.
+- **Earnings rate** — hourly rate or salary to power the *Est. value saved* card.
 
 **From Settings → Stats you can:**
 - **Clear stats** — wipes all daily counts (typing speed and earnings rate are preserved)
 - **Clear log** — empties `~/Library/Logs/SypherSTT/sypher_stt.log`
 - **View log file** — opens the log in your default text editor
 
-The log rotates automatically (5 MB × 3 backups) and records only app lifecycle events and per-transcription summaries (character count, audio duration).
+The log rotates automatically (5 MB × 3 backups) and records only lifecycle events and per-transcription summaries.
 
 <div align="center">
 
@@ -108,19 +102,17 @@ The log rotates automatically (5 MB × 3 backups) and records only app lifecycle
 - **Settings UI** — four-tab panel for hotkey, model, mic, sounds, permissions, and stats
 - **Stats** — local-only usage tracking with words transcribed, audio duration, and estimated time saved
 - **Typing speed test** — built-in WPM test to calibrate time-saved estimates
-- **Auto-update** — checks GitHub releases in the background and prompts when a new version is available
+- **Update check** — background check against GitHub releases; notifies when a new version is available
 
 ---
 
 ## Privacy & Security
 
-Sypher STT is designed from the ground up with privacy as a non-negotiable constraint:
-
-- **No network access during transcription.** Whisper runs entirely on your CPU via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). No API calls, no servers, no audio or transcriptions transmitted anywhere.
+- **No network access during transcription.** Whisper runs entirely on your CPU via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). No API calls, no servers, no audio transmitted anywhere.
 - **Your audio never leaves your machine.** Audio is captured and processed in local memory, then immediately discarded — never written to disk, never sent over a network.
-- **No telemetry, no analytics, no accounts.** No tracking code, no remote usage reporting, no login required. The only outbound network call the app ever makes is a version check: when the Settings window opens, it queries the GitHub Releases API (`api.github.com`) to see if a newer release exists. No audio, transcriptions, stats, or personal data are included — the request carries only the app version in the User-Agent header. Transcription itself is fully air-gapped and makes no network calls at any point.
-- **Usage stats are local-only and opt-out.** The Stats tab records only aggregate counts — words, characters, and audio duration per day. No transcribed text, no keystrokes, no conversation history are ever logged, stored, or transmitted. Toggle collection off from **Settings → Stats** and nothing is written anywhere.
-- **Everything stays on your machine.** Config, stats, and logs live under `~/Library/Application Support/SypherSTT/` and `~/Library/Logs/SypherSTT/` with user-only (`600`) file permissions and symlink-safe writes (`O_NOFOLLOW`).
+- **No telemetry, no analytics, no accounts.** No tracking, no login. The only outbound call is a version check against `api.github.com` when Settings opens — it sends only the app version. No audio, transcriptions, or personal data are ever transmitted.
+- **Usage stats are local-only and opt-out.** Only aggregate counts (words, characters, audio duration per day) are recorded — no transcribed text or keystrokes. Disable in **Settings → Stats**.
+- **Everything stays on your machine.** Config, stats, and logs live under `~/Library/Application Support/SypherSTT/` and `~/Library/Logs/SypherSTT/` with user-only (`600`) file permissions.
 
 <div align="center">
 
@@ -143,8 +135,6 @@ cd sypher-stt-macos
 chmod +x run.sh
 ./run.sh
 ```
-
-`run.sh` creates a `.venv`, installs dependencies, and launches the setup wizard to walk you through permissions and model selection.
 
 ---
 
@@ -180,8 +170,6 @@ cd sypher-stt-macos && git pull && ./run.sh
 
 2. Quit Sypher STT from the menu bar icon → **Quit**
 3. Open Terminal, paste, and press Enter
-
-`run.sh` picks up any new dependencies and relaunches the app. [Full update guide →](https://github.com/latenighthackathon/sypher-stt-macos#updating)
 
 ---
 
@@ -228,19 +216,19 @@ python scripts/download_model.py --list
 python scripts/download_model.py small.en
 ```
 
-Models are downloaded from [Hugging Face](https://huggingface.co/Systran) and stored in `models/` at the project root by default. Set `SYPHER_MODELS_DIR` to override — the path must be an absolute path inside `~/Library/Application Support/SypherSTT/` (paths outside that directory are ignored for security).
+Models are downloaded from [Hugging Face](https://huggingface.co/Systran) and stored in `models/` at the project root by default. Set `SYPHER_MODELS_DIR` to override — must be an absolute path inside `~/Library/Application Support/SypherSTT/`.
 
 ---
 
 ## Accessibility Permission (required for hotkey)
 
-Sypher STT uses `pynput` to listen for a global hotkey. macOS requires **Accessibility permission** for any app that monitors keyboard events system-wide.
+macOS requires **Accessibility permission** for any app that monitors global keyboard events.
 
 1. Open **System Settings → Privacy & Security → Accessibility**
 2. Add your **Terminal** (or whichever app you launch Sypher STT from) and toggle it **on**
 3. Restart Sypher STT
 
-If you skip this step, the hotkey won't fire (but the menu bar icon will still appear). The setup wizard will guide you through this on first run.
+If skipped, the hotkey won't fire (the menu bar icon will still appear). The setup wizard covers this on first run.
 
 ---
 
@@ -262,7 +250,7 @@ Settings are stored in:
 | `sound_error` | `"Basso"` | macOS system sound played on transcription error. |
 | `record_stats` | `true` | Record per-session word count, character count, and audio duration. When `false`, nothing is written to `stats.json` or the log. |
 
-Changes are picked up within 3 seconds without restarting. You can also edit settings via the **Settings** menu item in the menu bar.
+Changes are picked up within 3 seconds without restarting.
 
 ---
 
