@@ -1874,8 +1874,6 @@ class SettingsWindow:
                 headers={"User-Agent": f"SypherSTT/{_VERSION}"},
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
-                if not resp.geturl().startswith("https://api.github.com/"):
-                    return
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "").strip()
             clean = tag.lstrip("v")
@@ -1885,7 +1883,7 @@ class SettingsWindow:
                 self._latest_version = clean
                 self._js_queue.put(f"showUpdateBadge({json.dumps('v' + clean)})")
         except Exception as e:
-            log.debug("Update check: %s", e)
+            log.warning("Update check failed: %s", e)
 
     def _do_update(self) -> None:
         """Start the update process (called from main thread via _handle)."""

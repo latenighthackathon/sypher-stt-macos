@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sypher-stt"
-version = "1.0.4"
+version = "1.0.5"
 description = "Voice-to-text dictation for macOS. Hold a hotkey, speak, paste. Fully offline."
 readme = "README.md"
 license = { text = "MIT" }
