@@ -46,7 +46,7 @@ Sypher STT is designed from the ground up with privacy as a non-negotiable const
 ```bash
 # 1. In Terminal, copy/paste these commands:
 git clone https://github.com/latenighthackathon/sypher-stt-macos
-cd sypher-stt-macos-main
+cd sypher-stt-macos
 
 # 2. Run (creates venv + launches setup wizard automatically)
 chmod +x run.sh
