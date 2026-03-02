@@ -1,6 +1,6 @@
 # Sypher STT — macOS
 
-> Privacy-first push-to-talk dictation for macOS. Hold a key, speak, release — text is pasted instantly. Fully offline using local Whisper models. Free and open source.
+> Privacy-first, push-to-talk voice dictation for macOS. Hold a key, speak, release — transcribed text is pasted instantly. Fully offline and private: transcription runs locally via Faster Whisper, with no API calls, no cloud services, and no audio ever leaving your machine.
 
 ---
 
@@ -169,7 +169,8 @@ cd sypher-stt-macos && git pull && ./run.sh
 ```
 
 2. Quit Sypher STT from the menu bar icon → **Quit**
-3. Open Terminal, paste, and press Enter
+3. Quit your current Terminal window and open a new one
+4. Paste the command and press Enter
 
 ---
 
