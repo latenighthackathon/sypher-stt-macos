@@ -595,7 +595,7 @@ nav { padding: 0 8px; flex: 1; }
   <button id="check-btn" class="check-update-btn" onclick="manualCheckForUpdate()">↺ Check for Updates</button>
   <div id="update-badge" class="update-badge" onclick="toggleUpdateInstructions()">
     <div class="update-badge-title">↑ Update Available</div>
-    <div class="update-badge-sub" id="update-badge-ver">click for instructions</div>
+    <div class="update-badge-sub" id="update-badge-ver">How to update →</div>
   </div>
   <div id="update-instructions" class="update-instructions">
     <div>1. Quit: menu bar → <strong style="color:#d1d5db">Quit</strong></div>
@@ -1149,12 +1149,31 @@ function refreshStats() { statsData = {}; post('get_stats', {}); }
 
 function confirmClearStats() { post('confirm_clear_stats', {}); }
 
-// ── Auto-update ───────────────────────────────────────────────────────────
+// ── Update checking ────────────────────────────────────────────────────────
+
+function _resetCheckBtn() {
+  const btn = document.getElementById('check-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '↺ Check for Updates'; }
+}
 
 function showUpdateBadge(v) {
+  // Reset button, then show the update badge
+  _resetCheckBtn();
   const badge = document.getElementById('update-badge');
   const sub   = document.getElementById('update-badge-ver');
-  if (badge && sub) { sub.textContent = v + ' available · click for instructions'; badge.style.display = 'block'; }
+  if (badge && sub) { sub.textContent = v + ' available'; badge.style.display = 'block'; }
+}
+
+function showUpToDate() {
+  const btn = document.getElementById('check-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '✓ Up to date'; }
+  setTimeout(_resetCheckBtn, 3000);
+}
+
+function showCheckError() {
+  const btn = document.getElementById('check-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Check failed — try again'; }
+  setTimeout(_resetCheckBtn, 4000);
 }
 
 function toggleUpdateInstructions() {
@@ -1166,9 +1185,8 @@ function manualCheckForUpdate() {
   const btn = document.getElementById('check-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
   post('check_for_update', {});
-  setTimeout(() => {
-    if (btn) { btn.disabled = false; btn.textContent = '↺ Check for Updates'; }
-  }, 5000);
+  // Fallback reset if Python never responds (e.g. hard network timeout)
+  setTimeout(() => { if (btn && btn.disabled) _resetCheckBtn(); }, 15000);
 }
 
 function updateStats(j) {
@@ -1809,7 +1827,7 @@ class SettingsWindow:
             self._confirm_clear_log()
 
         elif action == "check_for_update":
-            threading.Thread(target=self._check_for_update, daemon=True).start()
+            threading.Thread(target=lambda: self._check_for_update(notify_if_current=True), daemon=True).start()
 
         elif action == "open_update_guide":
             subprocess.Popen(["open", "https://github.com/latenighthackathon/sypher-stt-macos#updating"])
@@ -1893,11 +1911,12 @@ class SettingsWindow:
     # Auto-update                                                          #
     # ------------------------------------------------------------------ #
 
-    def _check_for_update(self) -> None:
+    def _check_for_update(self, notify_if_current: bool = False) -> None:
         """Fetch the latest GitHub release tag in a background thread.
 
-        If a newer version is found, calls showUpdateBadge() in the webview
-        via the UpdateNotifier dispatcher (routes to main thread).
+        If a newer version is found, calls showUpdateBadge() in the webview.
+        When notify_if_current=True (manual check), also calls showUpToDate()
+        or showCheckError() so the button always resets with clear feedback.
         """
         try:
             import urllib.request
@@ -1910,11 +1929,17 @@ class SettingsWindow:
             tag = data.get("tag_name", "").strip()
             clean = tag.lstrip("v")
             if not _VERSION_RE.fullmatch(clean):
+                if notify_if_current:
+                    self._js_queue.put("showUpToDate()")
                 return
             if _parse_version(clean) > _parse_version(_VERSION):
                 self._js_queue.put(f"showUpdateBadge({json.dumps('v' + clean)})")
+            elif notify_if_current:
+                self._js_queue.put("showUpToDate()")
         except Exception as e:
             log.warning("Update check failed: %s", e)
+            if notify_if_current:
+                self._js_queue.put("showCheckError()")
 
     def _show_picker(self, ptype: str):
         if ptype == "hotkey":
