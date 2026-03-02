@@ -1919,12 +1919,21 @@ class SettingsWindow:
         or showCheckError() so the button always resets with clear feedback.
         """
         try:
+            import ssl
             import urllib.request
+            # macOS system Python doesn't use the system keychain by default.
+            # certifi is installed as a transitive dep of huggingface-hub and
+            # provides a reliable CA bundle that avoids SSL_CERTIFICATE_VERIFY_FAILED.
+            try:
+                import certifi
+                _ctx = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:
+                _ctx = ssl.create_default_context()
             req = urllib.request.Request(
                 f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest",
                 headers={"User-Agent": f"SypherSTT/{_VERSION}"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=_ctx) as resp:
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "").strip()
             clean = tag.lstrip("v")
