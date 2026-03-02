@@ -18,7 +18,6 @@ import sys
 import threading
 from pathlib import Path
 from typing import List, Optional, Tuple
-from urllib.parse import urlparse
 
 from sypher_stt.constants import (
     APPDATA_DIR as _APPDATA_DIR,
@@ -46,7 +45,6 @@ except ImportError:
     _VERSION = "dev"
 
 _GITHUB_REPO  = "latenighthackathon/sypher-stt-macos"
-_RESTART_FLAG = _APPDATA_DIR / ".restart"
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
@@ -123,16 +121,6 @@ def _load_config() -> dict:
 def _save_config(cfg: dict) -> None:
     _secure_write_json(_CONFIG_PATH, cfg)
 
-
-def _trusted_release_zip_url(ver: str) -> str:
-    if not _VERSION_RE.fullmatch(ver):
-        raise ValueError("Invalid release version format.")
-    url = f"https://github.com/{_GITHUB_REPO}/archive/refs/tags/v{ver}.zip"
-    parsed = urlparse(url)
-    expected_path = f"/{_GITHUB_REPO}/archive/refs/tags/v{ver}.zip"
-    if parsed.scheme != "https" or parsed.netloc != "github.com" or parsed.path != expected_path:
-        raise ValueError("Refusing untrusted update URL.")
-    return url
 
 
 def _input_devices() -> List[Tuple[Optional[int], str]]:
@@ -245,16 +233,50 @@ nav { padding: 0 8px; flex: 1; }
 .update-badge:hover { background: rgba(99,102,241,0.15); }
 .update-badge-title { color: var(--accent); font-size: 11px; font-weight: 600; }
 .update-badge-sub   { color: var(--accent-2); font-size: 10px; margin-top: 1px; }
-.update-progress {
+.update-instructions {
   display: none;
-  margin: 6px 10px 4px;
-  padding: 6px 10px;
+  margin: 0 10px 6px;
+  padding: 8px 10px;
   background: #111;
   border: 1px solid #374151;
-  border-radius: 6px;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
   color: #9ca3af;
   font-size: 10px;
+  line-height: 1.7;
 }
+.update-inst-code {
+  margin: 4px 0;
+  padding: 4px 6px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 10px;
+  color: #d1d5db;
+}
+.update-inst-link {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 10px;
+  text-decoration: none;
+}
+.update-inst-link:hover { text-decoration: underline; }
+.check-update-btn {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 4px 10px 2px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #6b7280;
+  font-size: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.check-update-btn:hover { border-color: var(--accent); color: var(--accent); }
+.check-update-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* ── CONTENT ── */
 .content {
@@ -570,11 +592,17 @@ nav { padding: 0 8px; flex: 1; }
     </div>
   </nav>
   <div class="sidebar-footer" id="ver-footer">v1.0.0</div>
-  <a id="update-badge" class="update-badge" href="#" onclick="post('do_update',{});return false;">
+  <button id="check-btn" class="check-update-btn" onclick="manualCheckForUpdate()">↺ Check for Updates</button>
+  <div id="update-badge" class="update-badge" onclick="toggleUpdateInstructions()">
     <div class="update-badge-title">↑ Update Available</div>
-    <div class="update-badge-sub" id="update-badge-ver">v1.1 available →</div>
-  </a>
-  <div id="update-progress" class="update-progress"></div>
+    <div class="update-badge-sub" id="update-badge-ver">click for instructions</div>
+  </div>
+  <div id="update-instructions" class="update-instructions">
+    <div>1. Quit: menu bar → <strong style="color:#d1d5db">Quit</strong></div>
+    <div>2. In Terminal:</div>
+    <div class="update-inst-code">cd sypher-stt-macos<br>git pull &amp;&amp; ./run.sh</div>
+    <a class="update-inst-link" href="#" onclick="post('open_update_guide',{});return false;">View update guide on GitHub →</a>
+  </div>
 </div>
 
 <!-- RIGHT CONTENT -->
@@ -1126,19 +1154,21 @@ function confirmClearStats() { post('confirm_clear_stats', {}); }
 function showUpdateBadge(v) {
   const badge = document.getElementById('update-badge');
   const sub   = document.getElementById('update-badge-ver');
-  if (badge && sub) { sub.textContent = v + ' available →'; badge.style.display = 'block'; }
+  if (badge && sub) { sub.textContent = v + ' available · click for instructions'; badge.style.display = 'block'; }
 }
 
-function showUpdateProgress(msg) {
-  const badge = document.getElementById('update-badge');
-  const prog  = document.getElementById('update-progress');
-  if (badge) badge.style.display = 'none';
-  if (prog)  { prog.textContent = msg; prog.style.display = 'block'; }
+function toggleUpdateInstructions() {
+  const inst = document.getElementById('update-instructions');
+  if (inst) inst.style.display = inst.style.display === 'block' ? 'none' : 'block';
 }
 
-function showUpdateDone() {
-  const prog = document.getElementById('update-progress');
-  if (prog) prog.textContent = '✓ Updated! Restarting SypherSTT…';
+function manualCheckForUpdate() {
+  const btn = document.getElementById('check-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  post('check_for_update', {});
+  setTimeout(() => {
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Check for Updates'; }
+  }, 5000);
 }
 
 function updateStats(j) {
@@ -1483,7 +1513,6 @@ class SettingsWindow:
         self._NSTimer = None          # stored in run() for use in _on_loaded
         self._js_poll_timer = None    # strong ref to repeating NSTimer
         self._downloading = False
-        self._latest_version: Optional[str] = None
 
     def run(self):
         from Foundation import NSObject, NSMakeRect, NSTimer
@@ -1779,8 +1808,11 @@ class SettingsWindow:
         elif action == "confirm_clear_log":
             self._confirm_clear_log()
 
-        elif action == "do_update":
-            self._do_update()
+        elif action == "check_for_update":
+            threading.Thread(target=self._check_for_update, daemon=True).start()
+
+        elif action == "open_update_guide":
+            subprocess.Popen(["open", "https://github.com/latenighthackathon/sypher-stt-macos#updating"])
 
     def _load_stats_file(self) -> dict:
         _STATS_PATH = _CONFIG_PATH.parent / "stats.json"
@@ -1880,148 +1912,9 @@ class SettingsWindow:
             if not _VERSION_RE.fullmatch(clean):
                 return
             if _parse_version(clean) > _parse_version(_VERSION):
-                self._latest_version = clean
                 self._js_queue.put(f"showUpdateBadge({json.dumps('v' + clean)})")
         except Exception as e:
             log.warning("Update check failed: %s", e)
-
-    def _do_update(self) -> None:
-        """Start the update process (called from main thread via _handle)."""
-        if not self._latest_version:
-            return
-        self._js("showUpdateProgress('Downloading update…')")
-        threading.Thread(
-            target=self._run_update,
-            args=(self._latest_version,),
-            daemon=True,
-        ).start()
-
-    def _run_update(self, ver: str) -> None:
-        """Download and install the update in a background thread.
-
-        Always copies new .py files to src/sypher_stt/ in the project root
-        (recorded by run.sh in APPDATA_DIR/.project_root), then re-runs
-        pip install -e to restore the editable install.  This ensures __file__
-        always resolves to src/ after restart regardless of prior install state.
-        """
-        import importlib
-        import importlib.metadata
-        import shutil
-        import subprocess as _sp
-        import sys as _sys
-        import tempfile
-        import urllib.request
-        import zipfile
-
-        def _notify(msg: str) -> None:
-            self._js_queue.put(f"showUpdateProgress({json.dumps(msg)})")
-
-        try:
-            # ── Locate current package directory ─────────────────────────────
-            import sypher_stt as _pkg_ref
-            pkg_dir = Path(_pkg_ref.__file__).parent
-
-            # ── Determine project root (written by run.sh on every launch) ────
-            # This is the only reliable way to find src/ regardless of whether
-            # the current install is editable (src/) or non-editable (site-packages/).
-            _root_file = APPDATA_DIR / ".project_root"
-            if _root_file.exists():
-                project_root = Path(_root_file.read_text(encoding="utf-8").strip())
-            else:
-                project_root = pkg_dir.parent.parent  # fallback
-
-            # ── Download source archive ───────────────────────────────────────
-            _notify("Downloading update…")
-            url = _trusted_release_zip_url(ver)
-            with urllib.request.urlopen(url, timeout=120) as resp:
-                zip_bytes = resp.read()
-
-            # ── Extract and copy in-place ─────────────────────────────────────
-            _notify("Installing update…")
-            with tempfile.TemporaryDirectory() as tmp:
-                tmp_path = Path(tmp)
-                zip_path = tmp_path / "update.zip"
-                zip_path.write_bytes(zip_bytes)
-
-                with zipfile.ZipFile(zip_path) as zf:
-                    # Guard against zip-slip: reject any entry whose resolved
-                    # destination falls outside the temp directory.
-                    tmp_resolved = str(tmp_path.resolve())
-                    for info in zf.infolist():
-                        dest = (tmp_path / info.filename).resolve()
-                        if not str(dest).startswith(tmp_resolved + "/") and str(dest) != tmp_resolved:
-                            raise RuntimeError(
-                                f"Unsafe path in update archive: {info.filename!r}"
-                            )
-                    zf.extractall(tmp_path)
-
-                # GitHub archive: <repo>-<ver>/src/sypher_stt/
-                new_pkg = None
-                for entry in tmp_path.iterdir():
-                    candidate = entry / "src" / "sypher_stt"
-                    if candidate.is_dir():
-                        new_pkg = candidate
-                        break
-
-                if new_pkg is None:
-                    raise RuntimeError("sypher_stt not found in update archive.")
-
-                # Always copy to src/sypher_stt/ in the project root so both
-                # editable and non-editable installs receive the new code after restart.
-                target_pkg_dir = project_root / "src" / "sypher_stt"
-                if target_pkg_dir.parent.exists():
-                    shutil.copytree(str(new_pkg), str(target_pkg_dir), dirs_exist_ok=True)
-                else:
-                    # src/ layout not present — copy to wherever __file__ currently lives
-                    shutil.copytree(str(new_pkg), str(pkg_dir), dirs_exist_ok=True)
-
-                # Copy pyproject.toml to project root
-                new_pyproject = new_pkg.parent.parent / "pyproject.toml"
-                old_pyproject = project_root / "pyproject.toml"
-                if new_pyproject.exists() and old_pyproject.exists():
-                    shutil.copy2(str(new_pyproject), str(old_pyproject))
-
-            # ── Re-establish editable install ─────────────────────────────────
-            # Ensures __file__ → src/ after restart even if a non-editable
-            # install had shadowed it.  pip install -e removes the stale
-            # site-packages copy and writes an editable link to src/ instead.
-            _notify("Finalizing update…")
-            try:
-                _sp.run(
-                    [_sys.executable, "-m", "pip", "install",
-                     "-e", f"{project_root}[download]", "--quiet"],
-                    capture_output=True,
-                    timeout=120,
-                )
-                log.debug("Editable install restored at %s", project_root)
-            except Exception as _pip_e:
-                log.warning("pip re-install failed (non-fatal): %s", _pip_e)
-
-            # ── Bump dist-info version (prevents update badge re-appearing) ──
-            try:
-                dist = importlib.metadata.distribution("sypher-stt")
-                # dist._path is the .dist-info directory itself; locate_file()
-                # incorrectly returns its parent (site-packages), so use _path
-                # directly to reach the METADATA file inside it.
-                meta_file = Path(str(dist._path)) / "METADATA"
-                if meta_file.exists():
-                    content = meta_file.read_text(encoding="utf-8")
-                    content = re.sub(
-                        r"^Version:.*$", f"Version: {ver}",
-                        content, count=1, flags=re.MULTILINE,
-                    )
-                    meta_file.write_text(content, encoding="utf-8")
-                    log.debug("Updated dist-info version to %s", ver)
-            except Exception as e:
-                log.debug("Could not update dist-info version: %s", e)
-
-            # ── Signal main app to restart ────────────────────────────────────
-            _secure_write_text(_RESTART_FLAG, ver)
-            self._js_queue.put("showUpdateDone()")
-
-        except Exception as e:
-            log.error("Update failed: %s", e)
-            _notify(f"Update failed: {e}")
 
     def _show_picker(self, ptype: str):
         if ptype == "hotkey":
