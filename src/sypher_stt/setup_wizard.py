@@ -1221,7 +1221,7 @@ class SetupWizard:
                     current = 0
                     if dest.exists():
                         try:
-                            current = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
+                            current = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file() and not f.is_symlink())
                         except Exception:
                             pass
                     pct = min(current / expected, 0.98) if expected else 0
