@@ -16,10 +16,16 @@ def get_responsible_app_name() -> str:
     try:
         import subprocess as _sp
         from AppKit import NSWorkspace  # type: ignore[import]
+        # Exclude Python interpreter processes — rumps registers the main
+        # app.py process as an NSApplication ("Python"), which would be hit
+        # first when the wizard subprocess walks its parent PID. We want to
+        # keep walking until we reach the actual terminal that launched us.
+        _SKIP = {"python", "python3", "python2"}
         running = {
             int(a.processIdentifier()): str(a.localizedName())
             for a in NSWorkspace.sharedWorkspace().runningApplications()
             if a.localizedName()
+            and str(a.localizedName()).lower() not in _SKIP
         }
         pid = os.getppid()
         for _ in range(10):
