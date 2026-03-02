@@ -245,15 +245,33 @@ nav { padding: 0 8px; flex: 1; }
   font-size: 10px;
   line-height: 1.7;
 }
-.update-inst-code {
+.update-inst-code-wrap {
+  position: relative;
   margin: 4px 0;
-  padding: 4px 6px;
+}
+.update-inst-code {
+  padding: 5px 32px 5px 6px;
   background: #1a1a1a;
   border-radius: 4px;
   font-family: monospace;
   font-size: 10px;
   color: #d1d5db;
+  line-height: 1.6;
 }
+.update-inst-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 5px;
+  background: #2a2a2a;
+  border: 1px solid #374151;
+  border-radius: 3px;
+  color: #9ca3af;
+  font-size: 9px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.update-inst-copy:hover { color: #d1d5db; border-color: #6b7280; }
 .update-inst-link {
   display: inline-block;
   margin-top: 6px;
@@ -599,8 +617,11 @@ nav { padding: 0 8px; flex: 1; }
   </div>
   <div id="update-instructions" class="update-instructions">
     <div>1. Quit: menu bar → <strong style="color:#d1d5db">Quit</strong></div>
-    <div>2. In Terminal:</div>
-    <div class="update-inst-code">cd sypher-stt-macos<br>git pull &amp;&amp; ./run.sh</div>
+    <div>2. Open <a class="update-inst-link" style="margin:0" href="#" onclick="post('open_terminal',{});return false;">Terminal</a> and run:</div>
+    <div class="update-inst-code-wrap">
+      <div class="update-inst-code">cd sypher-stt-macos<br>git pull &amp;&amp; ./run.sh</div>
+      <button class="update-inst-copy" onclick="copyUpdateCmd(this)">Copy</button>
+    </div>
     <a class="update-inst-link" href="#" onclick="post('open_update_guide',{});return false;">View update guide on GitHub →</a>
   </div>
 </div>
@@ -1179,6 +1200,13 @@ function showCheckError() {
 function toggleUpdateInstructions() {
   const inst = document.getElementById('update-instructions');
   if (inst) inst.style.display = inst.style.display === 'block' ? 'none' : 'block';
+}
+
+function copyUpdateCmd(btn) {
+  post('copy_to_clipboard', {text: 'cd sypher-stt-macos\ngit pull && ./run.sh'});
+  const orig = btn.textContent;
+  btn.textContent = 'Copied!';
+  setTimeout(() => { btn.textContent = orig; }, 2000);
 }
 
 function manualCheckForUpdate() {
@@ -1828,6 +1856,16 @@ class SettingsWindow:
 
         elif action == "check_for_update":
             threading.Thread(target=lambda: self._check_for_update(notify_if_current=True), daemon=True).start()
+
+        elif action == "open_terminal":
+            subprocess.Popen(["open", "-a", "Terminal"])
+
+        elif action == "copy_to_clipboard":
+            try:
+                import pyperclip
+                pyperclip.copy(body.get("text", ""))
+            except Exception as e:
+                log.warning("Clipboard copy failed: %s", e)
 
         elif action == "open_update_guide":
             subprocess.Popen(["open", "https://github.com/latenighthackathon/sypher-stt-macos#updating"])
