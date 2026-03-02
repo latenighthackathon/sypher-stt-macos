@@ -11,7 +11,6 @@ Architecture note:
 """
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -63,6 +62,7 @@ class SypherSTT:
         self._state = AppState.IDLE
         self._state_lock = threading.Lock()
         self._processing = False
+        self._restart_requested = False
 
         # Tracked child processes (one instance of each allowed at a time)
         self._settings_proc: Optional[subprocess.Popen] = None
@@ -218,7 +218,8 @@ class SypherSTT:
                 if self._recorder.is_recording:
                     self._recorder.stop_recording()
                 self._terminate_subprocesses()
-                os.execv(sys.executable, [sys.executable, "-m", "sypher_stt.app"])
+                self._restart_requested = True
+                rumps.quit_application()
             except Exception as e:
                 log.error("Auto-restart failed: %s", e)
 
@@ -340,6 +341,7 @@ def main() -> None:
         log.warning("Sypher STT is already running. Exiting.")
         sys.exit(1)
 
+    restart_needed = False
     try:
         # ── First-run setup wizard ──────────────────────────────────────────
         # Run in a subprocess so its NSApplication run loop doesn't kill this
@@ -356,6 +358,7 @@ def main() -> None:
         # ── Launch app ─────────────────────────────────────────────────────
         app = SypherSTT()
         app.run()
+        restart_needed = app._restart_requested
     except KeyboardInterrupt:
         log.info("Interrupted by user.")
     except Exception as e:
@@ -363,6 +366,16 @@ def main() -> None:
         sys.exit(1)
     finally:
         guard.release()
+
+    # Spawn a fresh process after the lock is released so it can acquire it.
+    # subprocess.Popen (new session) avoids inheriting Cocoa Mach ports.
+    if restart_needed:
+        log.info("Spawning fresh process for update restart.")
+        subprocess.Popen(
+            [sys.executable, "-m", "sypher_stt.app"],
+            close_fds=True,
+            start_new_session=True,
+        )
 
 
 if __name__ == "__main__":
