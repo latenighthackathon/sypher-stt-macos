@@ -231,13 +231,16 @@ Open the menu bar icon → **Settings** → **General**. If a newer version is a
 
 ### Manual
 
+1. Quit Sypher STT from the menu bar icon → **Quit**
+2. Open Terminal, `cd` into the project folder, then run:
+
 ```bash
 cd sypher-stt-macos
 git pull
 ./run.sh
 ```
 
-`run.sh` re-runs `pip install -e .` on first launch after a pull, picking up any new dependencies. The app restarts with the latest code.
+`run.sh` picks up any new dependencies and relaunches the app.
 
 ---
 
