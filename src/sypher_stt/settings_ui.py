@@ -708,15 +708,15 @@ function renderModelCards(cur, local) {
     const sel  = m.id === cur;
     const cls  = 'model-card-s' + (sel ? ' selected' : '') + (!inst ? ' not-installed' : '');
     const rCls = 'model-radio-s' + (sel ? ' selected' : '');
-    const click = sel ? '' : (inst ? `onclick="selectModel(${JSON.stringify(m.id)})"` : `onclick="promptDownloadModel(${JSON.stringify(m.id)})"`);
+    const click = sel ? '' : (inst ? `onclick="selectModel('${m.id}')"` : `onclick="promptDownloadModel('${m.id}')"`);
 
     const recBadge  = m.recommended ? `<span class="model-badge-s badge-rec">Recommended</span>` : '';
     const instBadge = inst
       ? `<span class="model-badge-s badge-inst">Installed</span>`
       : `<span class="model-badge-s badge-noinst">Not installed</span>`;
     const folderLink = inst
-      ? `<button class="model-link-s" onclick="openModelFolder(event,${JSON.stringify(m.id)})">Show in Finder ↗</button>`
-      : '';
+      ? `<button class="model-link-s" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>`
+      : `<button class="model-link-s" onclick="promptDownloadModel('${m.id}')">Download ↓</button>`;
     return `<div class="${cls}" ${click}>
       <div class="${rCls}"></div>
       <div class="model-info-s">
@@ -725,7 +725,7 @@ function renderModelCards(cur, local) {
         </div>
         <div class="model-desc-s">${esc(m.desc)}</div>
         <div class="model-links-s">
-          <button class="model-link-s" onclick="openModelHF(event,${JSON.stringify(m.id)})">HuggingFace ↗</button>
+          <button class="model-link-s" onclick="openModelHF(event,'${m.id}')">HuggingFace ↗</button>
           ${folderLink}
         </div>
       </div>
