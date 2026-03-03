@@ -168,7 +168,7 @@ Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Upd
 4. Paste the command and press **Enter**
 
 ```bash
-cd "/full/path/to/sypher-stt-macos"
+cd sypher-stt-macos
 git fetch origin && git reset --hard origin/main
 ./run.sh
 ```
