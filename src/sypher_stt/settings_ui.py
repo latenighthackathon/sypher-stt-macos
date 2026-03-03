@@ -47,6 +47,20 @@ except ImportError:
 _GITHUB_REPO  = "latenighthackathon/sypher-stt-macos"
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
+# Expected download sizes (bytes) — used for progress estimation.
+_MODEL_EXPECTED_BYTES: dict = {
+    "tiny.en":   78_000_000,
+    "tiny":      78_000_000,
+    "base.en":  148_000_000,
+    "base":     148_000_000,
+    "small.en": 487_000_000,
+    "small":    487_000_000,
+    "medium.en":  1_528_000_000,
+    "medium":     1_528_000_000,
+    "large-v2":   3_100_000_000,
+    "large-v3":   3_100_000_000,
+}
+
 
 def _parse_version(v: str) -> tuple:
     """Parse a version string like '1.2.3' or 'v1.2.3' into a comparable tuple."""
@@ -777,11 +791,26 @@ function startModelDownload(id) {
   const box = document.getElementById('picker-box');
   box.innerHTML = `
     <div class="picker-title">Downloading ${esc(m ? m.name : id)}…</div>
-    <div style="padding:10px 12px 4px;font-size:12px;color:#9ca3af;text-align:center">
-      This may take a few minutes. Please keep the settings window open.
-    </div>
-    <div class="model-dl-bar"><div class="model-dl-fill"></div></div>`;
+    <div style="padding:6px 16px 0;font-size:12px;color:#9ca3af">${esc(m ? m.size : '')} — keep this window open during download.</div>
+    <div style="padding:10px 16px 4px">
+      <div style="height:6px;background:#27272a;border-radius:3px;overflow:hidden">
+        <div id="sdl-fill" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 0.35s ease"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:5px">
+        <span id="sdl-label" style="font-size:11px;color:#6b7280">Connecting…</span>
+        <span id="sdl-pct" style="font-size:11px;color:#6b7280">0%</span>
+      </div>
+    </div>`;
   post('download_model', {id});
+}
+
+function modelDownloadProgress(pct, currMb, expMb) {
+  const fill  = document.getElementById('sdl-fill');
+  const label = document.getElementById('sdl-label');
+  const pctEl = document.getElementById('sdl-pct');
+  if (fill)  fill.style.width = (pct * 100).toFixed(1) + '%';
+  if (label) label.textContent = currMb > 0 ? currMb + ' MB of ' + expMb + ' MB' : 'Connecting…';
+  if (pctEl) pctEl.textContent = Math.round(pct * 100) + '%';
 }
 
 function modelDownloadDone(id, local) {
@@ -2063,6 +2092,12 @@ class SettingsWindow:
 
     def _download_model(self, model_id: str) -> None:
         """Download a Whisper model in a background thread, dispatch result to JS."""
+        stop_event = threading.Event()
+        threading.Thread(
+            target=self._poll_download_progress,
+            args=(model_id, stop_event),
+            daemon=True,
+        ).start()
         try:
             from huggingface_hub import snapshot_download
             snapshot_download(
@@ -2070,12 +2105,34 @@ class SettingsWindow:
                 local_dir=str(_MODELS_DIR / model_id),
                 local_dir_use_symlinks=False,
             )
+            stop_event.set()
             self._downloading = False
             local = _local_models()
             self._js_queue.put(f"modelDownloadDone({json.dumps(model_id)}, {json.dumps(local)})")
         except Exception as e:
+            stop_event.set()
             self._downloading = False
             self._js_queue.put(f"modelDownloadError('', {json.dumps(str(e))})")
+
+    def _poll_download_progress(self, model_id: str, stop: threading.Event) -> None:
+        """Push download progress into _js_queue every 0.5s while downloading."""
+        expected = _MODEL_EXPECTED_BYTES.get(model_id, 148_000_000)
+        dest = _MODELS_DIR / model_id
+        while not stop.is_set():
+            current = 0
+            if dest.exists():
+                try:
+                    current = sum(
+                        f.stat().st_size for f in dest.rglob("*")
+                        if f.is_file() and not f.is_symlink()
+                    )
+                except Exception:
+                    pass
+            pct = min(current / expected, 0.98) if expected else 0
+            curr_mb = current // 1_000_000
+            exp_mb  = expected // 1_000_000
+            self._js_queue.put(f"modelDownloadProgress({pct:.3f}, {curr_mb}, {exp_mb})")
+            stop.wait(0.5)
 
     def _start_recorder(self):
         """Key capture is handled by JS keydown events; this just marks recording active."""
