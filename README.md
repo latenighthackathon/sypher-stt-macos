@@ -48,7 +48,7 @@ Hold hotkey → AudioRecorder (sounddevice, 16kHz) → Whisper (faster-whisper, 
 | **Defaults** | Hotkey picker, microphone device, Whisper model selection (download or switch) |
 | **Sounds** | Toggle sound feedback; pick start / stop / error sounds from macOS system sounds |
 | **Permissions** | Live status of Accessibility and Microphone grants; links to open System Settings |
-| **Stats** | Toggle stats collection; word/character/audio/time-saved cards; filter by week / month / 3 months / all time; bar chart; typing speed test; clear stats; view or clear log |
+| **Stats** | Toggle stats collection; word/character/audio/time-saved cards; filter by today / week / month / 3 months / all time; bar chart; typing speed test; clear stats; view or clear log |
 
 <div align="center">
 
@@ -158,19 +158,23 @@ python -m sypher_stt.app
 
 ### Check for updates
 
-Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Updates** button. If a newer version is available, an update badge appears with instructions.
+Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Updates** button. If a newer version is available, an update badge appears with a one-click copy of the update command.
 
 ### How to update
 
-1. In Settings, copy the update command (includes your full install path)
-2. Quit Sypher STT from the menu bar icon → **Quit**
-3. Quit your current Terminal window and open a new one
-4. Paste the command and press Enter
+1. In **Settings**, click **Copy update command** (it includes your exact install path)
+2. Quit Sypher STT — menu bar icon → **Quit**
+3. Open a **new** Terminal window
+4. Paste the command and press **Enter**
 
 ```bash
 # The copied command will look like:
-cd "/full/path/to/sypher-stt-macos" && git pull && ./run.sh
+cd "/full/path/to/sypher-stt-macos" && git fetch origin && git reset --hard origin/main && ./run.sh
 ```
+
+`git reset --hard origin/main` ensures your local copy always matches GitHub exactly, avoiding merge conflicts or divergent-branch errors from previous installs.
+
+> **Note:** Any local file changes inside the project folder will be overwritten. Your config, stats, and models are stored outside the project (in `~/Library/Application Support/SypherSTT/`) and are never affected by an update.
 
 ---
 
