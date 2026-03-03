@@ -634,7 +634,7 @@ nav { padding: 0 8px; flex: 1; }
   <div id="update-instructions" class="update-instructions">
     <div>1. Copy the command below</div>
     <div class="update-inst-code-wrap">
-      <div class="update-inst-code">cd sypher-stt-macos<br>git pull &amp;&amp; ./run.sh</div>
+      <div class="update-inst-code">cd sypher-stt-macos<br>git fetch origin &amp;&amp; git reset --hard origin/main &amp;&amp; ./run.sh</div>
       <button class="update-inst-copy" onclick="copyUpdateCmd(this)">Copy</button>
     </div>
     <div>2. Quit: menu bar → <strong style="color:#d1d5db">Quit</strong></div>
@@ -1957,9 +1957,9 @@ class SettingsWindow:
                 root_file = _APPDATA_DIR / ".project_root"
                 if root_file.exists():
                     proj = root_file.read_text(encoding="utf-8").strip()
-                    cmd = f'cd "{proj}" && git pull && ./run.sh'
+                    cmd = f'cd "{proj}" && git fetch origin && git reset --hard origin/main && ./run.sh'
                 else:
-                    cmd = "git pull && ./run.sh"
+                    cmd = "git fetch origin && git reset --hard origin/main && ./run.sh"
                 pyperclip.copy(cmd)
             except Exception as e:
                 log.warning("Clipboard copy failed: %s", e)
