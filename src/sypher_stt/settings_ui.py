@@ -13,6 +13,7 @@ import logging
 import os
 import queue
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -1974,7 +1975,7 @@ class SettingsWindow:
                 root_file = _APPDATA_DIR / ".project_root"
                 if root_file.exists():
                     proj = root_file.read_text(encoding="utf-8").strip()
-                    cmd = f'cd "{proj}" && git fetch origin && git reset --hard origin/main && ./run.sh'
+                    cmd = f'cd {shlex.quote(proj)} && git fetch origin && git reset --hard origin/main && ./run.sh'
                 else:
                     cmd = "git fetch origin && git reset --hard origin/main && ./run.sh"
                 pyperclip.copy(cmd)

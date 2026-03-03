@@ -11,6 +11,7 @@ Usage:
 
 import html
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -35,6 +36,8 @@ from sypher_stt.utils import (
     TT_PASSAGES as _TT_PASSAGES,
     SHARED_HOTKEY_JS as _SHARED_HOTKEY_JS,
 )
+
+log = logging.getLogger(__name__)
 
 # ── Model catalog ─────────────────────────────────────────────────────────────
 MODEL_CATALOG = [
@@ -1448,9 +1451,17 @@ class SetupWizard:
                 dest = MODELS_DIR / self._selected_model
                 if dest.exists():
                     try:
-                        shutil.rmtree(str(dest))
-                    except Exception:
-                        pass
+                        _safe = (
+                            not dest.is_symlink()
+                            and dest.resolve().is_relative_to(MODELS_DIR.resolve())
+                        )
+                    except (ValueError, OSError):
+                        _safe = False
+                    if _safe:
+                        try:
+                            shutil.rmtree(str(dest))
+                        except Exception:
+                            pass
             self._downloading = True
             self._download_success = False
             self._download_error = ""
@@ -1513,7 +1524,7 @@ class SetupWizard:
             model_id = body.get("id", "")
             valid_models = {e[0] for e in MODEL_CATALOG}
             folder = MODELS_DIR / model_id
-            if model_id in valid_models and not folder.is_symlink() and folder.is_dir():
+            if re.fullmatch(r'[a-z0-9._-]+', model_id) and model_id in valid_models and not folder.is_symlink() and folder.is_dir():
                 try:
                     safe = folder.resolve().is_relative_to(MODELS_DIR.resolve())
                 except (ValueError, OSError):
@@ -1529,7 +1540,7 @@ class SetupWizard:
         elif action == "save_wpm":
             try:
                 wpm = int(body.get("wpm", 0))
-                if wpm > 0:
+                if 1 <= wpm <= 500:
                     stats_path = CONFIG_DIR / "stats.json"
                     stats: dict = {"typing_wpm": 0, "days": {}}
                     if stats_path.exists():
@@ -1564,7 +1575,7 @@ class SetupWizard:
             )
             self._download_success = True
         except Exception as e:
-            print(f"[setup_wizard] model download failed: {e}", file=sys.stderr)
+            log.error("Model download failed: %s", e)
             self._download_error = "Download failed. Check the log for details."
             if dest.exists():
                 try:
