@@ -168,8 +168,9 @@ Open the menu bar icon → **Settings**. The sidebar shows a **↺ Check for Upd
 4. Paste the command and press **Enter**
 
 ```bash
-# The copied command will look like:
-cd "/full/path/to/sypher-stt-macos" && git fetch origin && git reset --hard origin/main && ./run.sh
+cd "/full/path/to/sypher-stt-macos"
+git fetch origin && git reset --hard origin/main
+./run.sh
 ```
 
 `git reset --hard origin/main` ensures your local copy always matches GitHub exactly, avoiding merge conflicts or divergent-branch errors from previous installs.
