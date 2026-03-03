@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 # Safety watchdog: if TRANSCRIBING lasts longer than this, auto-reset to IDLE.
 # Set well above the longest realistic transcription (large-v3, 2-min audio on
 # slow hardware) to avoid false positives. Only fires on genuine hangs.
-_TRANSCRIPTION_TIMEOUT_S = 300  # 5 minutes
+_TRANSCRIPTION_TIMEOUT_S = 90   # 90s — generous for any model/recording length
 
 
 class SypherSTT:
@@ -219,16 +219,18 @@ class SypherSTT:
             if (
                 self._state == AppState.TRANSCRIBING
                 and self._transcribing_since is not None
-                and time.monotonic() - self._transcribing_since > _TRANSCRIPTION_TIMEOUT_S
             ):
                 elapsed = time.monotonic() - self._transcribing_since
-                log.error(
-                    "Transcription watchdog: stuck for %.0fs, resetting to idle.", elapsed
-                )
-                self._processing = False
-                self._state = AppState.IDLE
-                self._transcribing_since = None
-                _watchdog_fired = True
+                if elapsed > _TRANSCRIPTION_TIMEOUT_S:
+                    log.error(
+                        "Transcription watchdog: stuck for %.0fs, resetting to idle.", elapsed
+                    )
+                    self._processing = False
+                    self._state = AppState.IDLE
+                    self._transcribing_since = None
+                    _watchdog_fired = True
+                else:
+                    log.debug("Transcription in progress (%.0fs elapsed).", elapsed)
         if _watchdog_fired:
             if self._config.get("sound_feedback", True):
                 play_sound(self._config.get("sound_error", "Basso"))

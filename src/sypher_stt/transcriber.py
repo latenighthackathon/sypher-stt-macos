@@ -98,12 +98,13 @@ class Transcriber:
         with self._load_lock:
             model = self._model  # hold lock to guard against concurrent model_size setter
 
+        log.info("Starting transcription of %.1fs audio…", audio.size / 16000)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             segments, info = model.transcribe(
                 audio,
                 language="en",
-                beam_size=5,
+                beam_size=2,  # 2 is fast and accurate enough for push-to-talk dictation
                 condition_on_previous_text=False,
                 vad_filter=True,
                 vad_parameters=dict(
