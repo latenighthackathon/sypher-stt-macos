@@ -6,6 +6,7 @@ On Apple Silicon Macs, CTranslate2 uses NEON SIMD for fast CPU inference.
 """
 
 import logging
+import os
 import threading
 import warnings
 from pathlib import Path
@@ -67,11 +68,16 @@ class Transcriber:
             log.info("Loading model '%s' from %s", self._model_size, model_path)
             from faster_whisper import WhisperModel
 
+            # Cap CPU threads to avoid starving other processes (VS Code, etc.).
+            # ctranslate2 defaults to 0 (= all cores) which saturates the system.
+            _cpu_threads = min(4, os.cpu_count() or 4)
             self._model = WhisperModel(
                 str(model_path),
                 device="cpu",
                 compute_type="auto",
                 local_files_only=True,
+                cpu_threads=_cpu_threads,
+                num_workers=1,
             )
             log.info("Model '%s' loaded successfully.", self._model_size)
 
