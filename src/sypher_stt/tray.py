@@ -103,7 +103,7 @@ class TrayApp(rumps.App):
             rumps.MenuItem("Quit", callback=self._quit),
         ]
 
-        self._last_state = AppState.IDLE
+        self._last_state: Optional[AppState] = None  # None forces icon apply on first timer tick
         self._setup_sf_icons()
 
     # ------------------------------------------------------------------ #
@@ -124,8 +124,6 @@ class TrayApp(rumps.App):
                 img.setTemplate_(True)  # Adapts to dark/light mode automatically
                 images[state] = img
             self._state_images = images
-            # Apply the initial idle icon now
-            self._apply_sf_icon(AppState.IDLE)
         except Exception as e:
             log.debug("SF Symbol icons unavailable, using emoji: %s", e)
 
@@ -138,7 +136,7 @@ class TrayApp(rumps.App):
         if img is None:
             return False
         try:
-            self.statusBarItem.button().setImage_(img)
+            self._nsapp.nsstatusitem.button().setImage_(img)
             # Clear any text so only the image shows
             if self.title:
                 self.title = ""
@@ -221,7 +219,7 @@ class TrayApp(rumps.App):
     def update_hotkey_display(self, hotkey_name: str) -> None:
         """Refresh the hotkey shown in the status menu item."""
         self._hotkey_name = hotkey_name
-        if self._last_state == AppState.IDLE:
+        if self._last_state in (AppState.IDLE, None):
             self._status_item.title = (
                 f"Ready — Hold {hotkey_display(hotkey_name)} to speak"
             )
