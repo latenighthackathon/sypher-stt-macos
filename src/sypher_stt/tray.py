@@ -31,8 +31,8 @@ class AppState(Enum):
 # SF Symbol name for each state
 _SF_SYMBOLS: dict[AppState, str] = {
     AppState.IDLE:         "mic",
-    AppState.RECORDING:    "mic.fill",
-    AppState.TRANSCRIBING: "waveform",
+    AppState.RECORDING:    "waveform",         # mic.fill clashes visually with macOS orange privacy indicator
+    AppState.TRANSCRIBING: "ellipsis",
 }
 
 # Emoji fallback for each state (used if SF Symbols unavailable)
@@ -136,10 +136,9 @@ class TrayApp(rumps.App):
         if img is None:
             return False
         try:
-            self._nsapp.nsstatusitem.button().setImage_(img)
-            # Clear any text so only the image shows
-            if self.title:
-                self.title = ""
+            btn = self._nsapp.nsstatusitem.button()
+            btn.setImage_(img)
+            btn.setTitle_("")  # Clear any text directly on the button (avoids rumps fallbackOnName)
             return True
         except Exception as e:
             log.debug("Could not set SF icon: %s", e)
