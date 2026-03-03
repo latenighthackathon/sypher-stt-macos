@@ -11,6 +11,7 @@ Usage:
 
 import html
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -1486,16 +1487,20 @@ class SetupWizard:
         elif action == "open_model_hf":
             model_id = body.get("id", "")
             valid_models = {e[0] for e in MODEL_CATALOG}
-            if model_id in valid_models:
+            if re.fullmatch(r'[a-z0-9._-]+', model_id) and model_id in valid_models:
                 subprocess.Popen(["open", f"https://huggingface.co/Systran/faster-whisper-{model_id}"])
 
         elif action == "open_model_folder":
             model_id = body.get("id", "")
             valid_models = {e[0] for e in MODEL_CATALOG}
-            if model_id in valid_models:
+            if re.fullmatch(r'[a-z0-9._-]+', model_id) and model_id in valid_models:
                 folder = MODELS_DIR / model_id
                 try:
-                    safe = folder.exists() and folder.resolve().is_relative_to(MODELS_DIR.resolve())
+                    safe = (
+                        not folder.is_symlink()
+                        and folder.exists()
+                        and folder.resolve().is_relative_to(MODELS_DIR.resolve())
+                    )
                 except (ValueError, OSError):
                     safe = False
                 if safe:

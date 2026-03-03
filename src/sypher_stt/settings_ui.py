@@ -13,6 +13,7 @@ import logging
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -65,7 +66,7 @@ _MODEL_EXPECTED_BYTES: dict = {
 def _parse_version(v: str) -> tuple:
     """Parse a version string like '1.2.3' or 'v1.2.3' into a comparable tuple."""
     try:
-        return tuple(int(x) for x in v.lstrip("v").split(".")[:3] if x.isdigit())
+        return tuple(int(x) for x in v.removeprefix("v").split(".")[:3] if x.isdigit())
     except Exception:
         return (0,)
 
@@ -1620,6 +1621,7 @@ class SettingsWindow:
         self._NSTimer = None          # stored in run() for use in _on_loaded
         self._js_poll_timer = None    # strong ref to repeating NSTimer
         self._downloading = False
+        self._raise_requested = False  # set by SIGUSR1 handler; consumed on main thread
 
     def run(self):
         from Foundation import NSObject, NSMakeRect, NSTimer
@@ -1632,6 +1634,14 @@ class SettingsWindow:
         from WebKit import WKWebView, WKWebViewConfiguration
 
         settings_ref = self
+
+        # ── SIGUSR1 → raise window to front ───────────────────────────────
+        # The main app process sends SIGUSR1 when the user clicks Settings
+        # while the window is already open. The signal handler only sets a
+        # flag; the actual Cocoa calls happen on the main thread via JSPoller.
+        def _sigusr1_handler(*_):
+            settings_ref._raise_requested = True
+        signal.signal(signal.SIGUSR1, _sigusr1_handler)
 
         # ── Navigation delegate — detect page load completion ─────────────
         class NavDelegate(NSObject):
@@ -1665,6 +1675,13 @@ class SettingsWindow:
         # Replaces performSelectorOnMainThread which is unreliable on Python 3.13.
         class JSPoller(NSObject):
             def poll_(self, timer):
+                # Raise window to front if signalled by the main app process
+                if settings_ref._raise_requested:
+                    settings_ref._raise_requested = False
+                    if settings_ref._window is not None:
+                        settings_ref._window.makeKeyAndOrderFront_(None)
+                        settings_ref._app.activateIgnoringOtherApps_(True)
+                # Drain pending JS calls
                 try:
                     while True:
                         script = settings_ref._js_queue.get_nowait()
@@ -1882,7 +1899,7 @@ class SettingsWindow:
                 if mode not in ("hourly", "salary"):
                     mode = "hourly"
                 value = float(body.get("value", 0))
-                if value > 0:
+                if 0 < value < 10_000_000:
                     self._save_rate(mode, value)
             except Exception:
                 pass
@@ -2030,7 +2047,7 @@ class SettingsWindow:
             log.error("Clear log error: %s", e)
 
     def _save_wpm(self, wpm: int) -> None:
-        if wpm <= 0:
+        if not (1 <= wpm <= 500):
             return
         stats = self._load_stats_file()
         stats["typing_wpm"] = wpm
@@ -2071,7 +2088,7 @@ class SettingsWindow:
             with urllib.request.urlopen(req, timeout=10, context=_ctx) as resp:
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "").strip()
-            clean = tag.lstrip("v")
+            clean = tag.removeprefix("v")
             if not _VERSION_RE.fullmatch(clean):
                 if notify_if_current:
                     self._js_queue.put("showUpToDate()")
@@ -2134,6 +2151,8 @@ class SettingsWindow:
             self._refresh()
 
         elif ptype == "model":
+            if value not in _AVAILABLE_MODELS:
+                return
             self._cfg["model"] = value
             _save_config(self._cfg)
             self._refresh()

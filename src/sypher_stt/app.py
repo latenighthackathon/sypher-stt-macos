@@ -174,7 +174,12 @@ class SypherSTT:
 
     def _open_settings(self) -> None:
         if self._settings_proc is not None and self._settings_proc.poll() is None:
-            return  # already open
+            # Window already open — raise it to the front via SIGUSR1
+            try:
+                self._settings_proc.send_signal(signal.SIGUSR1)
+            except Exception as e:
+                log.warning("Could not raise settings window: %s", e)
+            return
         self._settings_proc = open_settings()
 
     def _open_setup_wizard(self) -> None:
