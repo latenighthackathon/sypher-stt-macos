@@ -417,6 +417,8 @@ nav { padding: 0 8px; flex: 1; }
 .model-link-s { font-size:10px; color:#52525b; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; transition:color 150ms; }
 .model-link-s:hover { color:var(--accent); }
 .model-size-s { font-size:12px; font-weight:600; color:#6b7280; flex-shrink:0; align-self:flex-start; margin-top:1px; }
+.model-trash-btn { background:none; border:none; padding:2px 4px; cursor:pointer; color:#3f3f46; transition:color 150ms; flex-shrink:0; align-self:flex-start; margin-top:-1px; line-height:1; }
+.model-trash-btn:hover { color:#f87171; }
 .model-card-s.selected .model-size-s { color:var(--accent); }
 .picker-box.model-picker { min-width:480px; max-height:520px; padding:8px 10px; }
 
@@ -731,6 +733,9 @@ function renderModelCards(cur, local) {
     const folderLink = inst
       ? `<button class="model-link-s" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>`
       : `<button class="model-link-s" onclick="promptDownloadModel('${m.id}')">Download ↓</button>`;
+    const trashBtn = inst && !sel
+      ? `<button class="model-trash-btn" title="Delete model" onclick="confirmDeleteModel(event,'${m.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`
+      : '';
     return `<div class="${cls}" ${click}>
       <div class="${rCls}"></div>
       <div class="model-info-s">
@@ -743,7 +748,10 @@ function renderModelCards(cur, local) {
           ${folderLink}
         </div>
       </div>
-      <span class="model-size-s">${esc(m.size)}</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+        <span class="model-size-s">${esc(m.size)}</span>
+        ${trashBtn}
+      </div>
     </div>`;
   }).join('');
 }
@@ -761,6 +769,29 @@ function openModelHF(e, id) {
 function openModelFolder(e, id) {
   e.stopPropagation();
   post('open_model_folder', {id});
+}
+
+function confirmDeleteModel(e, id) {
+  e.stopPropagation();
+  const m = MODEL_CATALOG.find(x => x.id === id);
+  const box = document.getElementById('picker-box');
+  box.className = 'picker-box model-picker';
+  box.dataset.type = 'delete_model';
+  box.innerHTML = `
+    <div class="picker-title">Delete ${esc(m ? m.name : id)}?</div>
+    <div style="padding:6px 12px 4px;font-size:12px;color:#9ca3af">Permanently deletes the downloaded model files (${esc(m ? m.size : '')}).</div>
+    <div style="display:flex;gap:8px;padding:8px 12px 12px">
+      <button class="row-btn" style="flex:1;background:none;border:1px solid #3f3f46;color:#9ca3af"
+              onclick="document.getElementById('picker-overlay').classList.remove('open')">Cancel</button>
+      <button class="row-btn" style="flex:1;background:#7f1d1d;border-color:#991b1b;color:#fca5a5"
+              onclick="doDeleteModel('${esc(id)}')">Delete</button>
+    </div>`;
+  document.getElementById('picker-overlay').classList.add('open');
+}
+
+function doDeleteModel(id) {
+  document.getElementById('picker-overlay').classList.remove('open');
+  post('delete_model', {id});
 }
 
 function showModelPicker(cur, local) {
@@ -1871,6 +1902,27 @@ class SettingsWindow:
                 and folder.resolve().is_relative_to(_MODELS_DIR.resolve())
             ):
                 subprocess.Popen(["open", str(folder)])
+
+        elif action == "delete_model":
+            import shutil as _shutil
+            model_id = body.get("id", "")
+            folder = _MODELS_DIR / model_id
+            if (
+                model_id in _AVAILABLE_MODELS
+                and not folder.is_symlink()
+                and folder.is_dir()
+                and folder.resolve().is_relative_to(_MODELS_DIR.resolve())
+            ):
+                try:
+                    _shutil.rmtree(str(folder))
+                    log.info("Deleted model '%s'.", model_id)
+                    if self._cfg.get("model") == model_id:
+                        local = _local_models()
+                        self._cfg["model"] = local[0] if local else "base.en"
+                        _save_config(self._cfg)
+                except Exception as e:
+                    log.error("delete_model failed: %s", e)
+            self._refresh()
 
         elif action == "open_log":
             try:

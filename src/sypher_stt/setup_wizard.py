@@ -327,6 +327,8 @@ body {
 .model-link { font-size: 10px; color: #52525b; background: none; border: none; padding: 0; margin-top: 5px; cursor: pointer; font-family: inherit; transition: color 150ms; display: inline-block; }
 .model-link:hover { color: var(--accent); }
 .model-size { font-size: 12px; font-weight: 600; color: #6b7280; flex-shrink: 0; }
+.model-trash-btn { background:none; border:none; padding:2px 4px; cursor:pointer; color:#3f3f46; transition:color 150ms; flex-shrink:0; line-height:1; display:block; margin-top:4px; }
+.model-trash-btn:hover { color:#f87171; }
 .model-card.selected .model-size { color: var(--accent); }
 
 /* Progress bar */
@@ -588,7 +590,10 @@ body {
         <div class="dl-progress" id="dl-progress">
           <div class="dl-label" id="dl-label">Downloading…</div>
           <div class="dl-track"><div class="dl-fill" id="dl-fill"></div></div>
-          <div class="dl-status" id="dl-status">Connecting…</div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px">
+            <span id="dl-status-mb" style="font-size:11px;color:#6b7280">Connecting…</span>
+            <span id="dl-status-pct" style="font-size:11px;color:#6b7280">0%</span>
+          </div>
         </div>
       </div>
       <div class="page-actions">
@@ -690,6 +695,20 @@ body {
   </div>
 </div>
 
+<!-- DELETE CONFIRM OVERLAY -->
+<div class="recorder-overlay" id="delete-confirm-overlay">
+  <div class="recorder-box">
+    <div class="recorder-title">Delete Model?</div>
+    <div style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;max-width:300px">
+      <strong id="del-model-name" style="color:white"></strong> will be permanently deleted from your Mac.
+    </div>
+    <div class="rec-actions">
+      <button class="btn-cancel" onclick="cancelDeleteModel()">Cancel</button>
+      <button class="btn-primary" style="background:#7f1d1d;border-color:#991b1b;color:#fca5a5" onclick="doDeleteModel()">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- TYPING TEST OVERLAY -->
 <div class="tt-overlay" id="tt-overlay">
   <div class="tt-box">
@@ -782,13 +801,17 @@ function renderModels() {
   const grid = document.getElementById('model-grid');
   grid.innerHTML = MODELS.map(m => {
     const inst = localModels.includes(m.id);
+    const sel  = m.id === selectedModel;
     const instBadge = inst ? '<span class="model-installed-badge">Installed</span>' : '';
     const link = inst
-      ? `<button class="model-link" onclick="openModelFolder(event,${JSON.stringify(m.id)})">Show in Finder ↗</button>`
-      : `<button class="model-link" onclick="openModelHF(event,${JSON.stringify(m.id)})">HuggingFace ↗</button>`;
+      ? `<button class="model-link" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>`
+      : `<button class="model-link" onclick="openModelHF(event,'${m.id}')">HuggingFace ↗</button>`;
+    const trashBtn = inst && !sel
+      ? `<button class="model-trash-btn" title="Delete model" onclick="confirmDeleteModel(event,'${m.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`
+      : '';
     return `
-    <div class="model-card ${m.id===selectedModel?'selected':''}" id="mc-${m.id}" onclick="selectModel(${JSON.stringify(m.id)})">
-      <div class="model-radio ${m.id===selectedModel?'selected':''}"></div>
+    <div class="model-card ${sel?'selected':''}" id="mc-${m.id}" onclick="selectModel('${m.id}')">
+      <div class="model-radio ${sel?'selected':''}"></div>
       <div class="model-info">
         <div class="model-name-row">
           <span class="model-name">${m.name}</span>
@@ -798,7 +821,10 @@ function renderModels() {
         <div class="model-desc">${m.desc}</div>
         ${link}
       </div>
-      <div class="model-size">${m.size}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0">
+        <div class="model-size">${m.size}</div>
+        ${trashBtn}
+      </div>
     </div>`;
   }).join('');
 }
@@ -838,6 +864,34 @@ function cancelOverwrite() {
 function confirmOverwrite() {
   document.getElementById('overwrite-overlay').classList.remove('open');
   post('start_download', {model: selectedModel, overwrite: true});
+}
+
+let _deleteModelId = null;
+
+function confirmDeleteModel(e, id) {
+  e.stopPropagation();
+  _deleteModelId = id;
+  const m = MODELS.find(x => x.id === id);
+  document.getElementById('del-model-name').textContent = m ? m.name : id;
+  document.getElementById('delete-confirm-overlay').classList.add('open');
+}
+
+function cancelDeleteModel() {
+  document.getElementById('delete-confirm-overlay').classList.remove('open');
+  _deleteModelId = null;
+}
+
+function doDeleteModel() {
+  const id = _deleteModelId;
+  document.getElementById('delete-confirm-overlay').classList.remove('open');
+  _deleteModelId = null;
+  if (id) post('delete_model', {id});
+}
+
+function onModelDeleted(local) {
+  localModels = local;
+  renderModels();
+  _updateDlBtn();
 }
 
 function openModelHF(e, id) {
@@ -901,24 +955,31 @@ function updateMicStatus(granted) {
   if (badge) badge.textContent = granted ? '✓ Granted' : '';
 }
 
-function updateProgress(pct, label, status) {
+function updateProgress(pct, label, currMb, expMb) {
   document.getElementById('dl-progress').style.display = 'block';
   document.getElementById('dl-btn').style.display = 'none';
   document.getElementById('dl-fill').style.width = (pct*100) + '%';
   if (label) document.getElementById('dl-label').textContent = label;
-  if (status) document.getElementById('dl-status').textContent = status;
+  const mbEl  = document.getElementById('dl-status-mb');
+  const pctEl = document.getElementById('dl-status-pct');
+  if (mbEl)  mbEl.textContent  = currMb > 0 ? currMb + ' MB of ' + expMb + ' MB' : 'Connecting…';
+  if (pctEl) pctEl.textContent = Math.round(pct * 100) + '%';
 }
 
 function downloadComplete() {
   document.getElementById('dl-fill').style.width = '100%';
-  document.getElementById('dl-status').textContent = 'Complete ✓';
-  document.getElementById('dl-status').style.color = '#4ade80';
+  const mbEl  = document.getElementById('dl-status-mb');
+  const pctEl = document.getElementById('dl-status-pct');
+  if (mbEl)  { mbEl.textContent = 'Complete ✓'; mbEl.style.color = '#4ade80'; }
+  if (pctEl) { pctEl.textContent = '100%'; pctEl.style.color = '#4ade80'; }
   document.getElementById('dl-next-btn').style.display = '';
 }
 
 function downloadError(msg) {
-  document.getElementById('dl-status').textContent = 'Error: ' + msg;
-  document.getElementById('dl-status').style.color = '#f87171';
+  const mbEl  = document.getElementById('dl-status-mb');
+  const pctEl = document.getElementById('dl-status-pct');
+  if (mbEl)  { mbEl.textContent = 'Error: ' + msg; mbEl.style.color = '#f87171'; }
+  if (pctEl) pctEl.textContent = '';
   document.getElementById('dl-btn').style.display = 'block';
   document.getElementById('dl-btn').textContent = 'Retry';
 }
@@ -1227,11 +1288,10 @@ class SetupWizard:
                     pct = min(current / expected, 0.98) if expected else 0
                     curr_mb = current // 1_000_000
                     exp_mb  = expected // 1_000_000
-                    status = f"{curr_mb} MB / {exp_mb} MB  ·  {int(pct*100)}%" if current > 0 else "Downloading…"
                     name  = entry[3] if entry else wiz._selected_model
                     size  = entry[4] if entry else ""
                     label = f"Downloading {name} ({size})…"
-                    wiz._js(f"updateProgress({pct}, {json.dumps(label)}, {json.dumps(status)})")
+                    wiz._js(f"updateProgress({pct}, {json.dumps(label)}, {curr_mb}, {exp_mb})")
                 except Exception:
                     pass
 
@@ -1444,6 +1504,22 @@ class SetupWizard:
                     target = model_bin if model_bin.exists() else folder
                     subprocess.Popen(["open", "-R", str(target)])
 
+        elif action == "delete_model":
+            model_id = body.get("id", "")
+            valid_models = {e[0] for e in MODEL_CATALOG}
+            folder = MODELS_DIR / model_id
+            if model_id in valid_models and not folder.is_symlink() and folder.is_dir():
+                try:
+                    safe = folder.resolve().is_relative_to(MODELS_DIR.resolve())
+                except (ValueError, OSError):
+                    safe = False
+                if safe:
+                    try:
+                        shutil.rmtree(str(folder))
+                    except Exception:
+                        pass
+            local = _get_local_models()
+            self._js(f"onModelDeleted({json.dumps(local)})")
 
         elif action == "save_wpm":
             try:
