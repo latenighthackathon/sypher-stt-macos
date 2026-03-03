@@ -95,16 +95,28 @@ class AudioRecorder:
             Numpy float32 array of audio samples at 16kHz mono.
             Empty array if nothing was recorded.
         """
+        # Phase 1: signal stop and take ownership of the stream under the lock,
+        # but do NOT call stream.stop()/close() here.  sounddevice blocks in
+        # stream.stop() until the current callback invocation returns, and
+        # _audio_callback also acquires self._lock — holding the lock across
+        # stream.stop() would deadlock.
         with self._lock:
             self._recording.clear()
-            if self._stream is not None:
-                try:
-                    self._stream.stop()
-                    self._stream.close()
-                except Exception as e:
-                    log.warning("Error closing audio stream: %s", e)
-                self._stream = None
+            stream = self._stream
+            self._stream = None
 
+        # Phase 2: stop/close outside the lock so the callback can finish.
+        # Any in-flight callback that passed the is_set() guard will acquire
+        # the lock, append its chunk, and return before stream.stop() returns.
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception as e:
+                log.warning("Error closing audio stream: %s", e)
+
+        # Phase 3: collect chunks (stream is fully stopped, no more callbacks).
+        with self._lock:
             if self._chunks:
                 audio = np.concatenate(self._chunks)
                 self._chunks = []

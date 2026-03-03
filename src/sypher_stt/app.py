@@ -16,6 +16,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from typing import Optional
 
 import rumps
@@ -35,6 +36,11 @@ from sypher_stt.transcriber import Transcriber
 from sypher_stt.tray import AppState, TrayApp
 
 log = logging.getLogger(__name__)
+
+# Safety watchdog: if TRANSCRIBING lasts longer than this, auto-reset to IDLE.
+# Set well above the longest realistic transcription (large-v3, 2-min audio on
+# slow hardware) to avoid false positives. Only fires on genuine hangs.
+_TRANSCRIPTION_TIMEOUT_S = 300  # 5 minutes
 
 
 class SypherSTT:
@@ -64,6 +70,7 @@ class SypherSTT:
         self._state_lock = threading.Lock()
         self._processing = False
         self._restart_requested = False
+        self._transcribing_since: Optional[float] = None
 
         # Tracked child processes (one instance of each allowed at a time)
         self._settings_proc: Optional[subprocess.Popen] = None
@@ -122,6 +129,7 @@ class SypherSTT:
                 return
             self._processing = True
             self._state = AppState.TRANSCRIBING
+            self._transcribing_since = time.monotonic()
 
         if self._config.get("sound_feedback", True):
             play_sound(self._config.get("sound_stop", "Blow"))
@@ -156,6 +164,7 @@ class SypherSTT:
                 with self._state_lock:
                     self._processing = False
                     self._state = AppState.IDLE
+                    self._transcribing_since = None
 
         threading.Thread(target=_transcribe, daemon=True).start()
 
@@ -199,6 +208,26 @@ class SypherSTT:
 
     def _poll_config_if_changed(self) -> None:
         """Called by tray timer — reload config if the file was modified."""
+        # Safety watchdog: auto-reset if stuck in TRANSCRIBING too long.
+        _watchdog_fired = False
+        with self._state_lock:
+            if (
+                self._state == AppState.TRANSCRIBING
+                and self._transcribing_since is not None
+                and time.monotonic() - self._transcribing_since > _TRANSCRIPTION_TIMEOUT_S
+            ):
+                elapsed = time.monotonic() - self._transcribing_since
+                log.error(
+                    "Transcription watchdog: stuck for %.0fs, resetting to idle.", elapsed
+                )
+                self._processing = False
+                self._state = AppState.IDLE
+                self._transcribing_since = None
+                _watchdog_fired = True
+        if _watchdog_fired:
+            if self._config.get("sound_feedback", True):
+                play_sound(self._config.get("sound_error", "Basso"))
+
         if not CONFIG_PATH.exists():
             return
         try:
