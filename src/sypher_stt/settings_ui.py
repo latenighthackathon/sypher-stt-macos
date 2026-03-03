@@ -417,7 +417,7 @@ nav { padding: 0 8px; flex: 1; }
 .model-link-s { font-size:10px; color:#52525b; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; transition:color 150ms; }
 .model-link-s:hover { color:var(--accent); }
 .model-size-s { font-size:12px; font-weight:600; color:#6b7280; flex-shrink:0; align-self:flex-start; margin-top:1px; }
-.model-trash-btn { background:none; border:none; padding:2px 4px; cursor:pointer; color:#3f3f46; transition:color 150ms; flex-shrink:0; align-self:flex-start; margin-top:-1px; line-height:1; }
+.model-trash-btn { background:none; border:none; padding:0 2px; cursor:pointer; color:#3f3f46; transition:color 150ms; flex-shrink:0; line-height:1; display:inline-flex; align-items:center; }
 .model-trash-btn:hover { color:#f87171; }
 .model-card-s.selected .model-size-s { color:var(--accent); }
 .picker-box.model-picker { min-width:480px; max-height:520px; padding:8px 10px; }
@@ -730,12 +730,12 @@ function renderModelCards(cur, local) {
     const instBadge = inst
       ? `<span class="model-badge-s badge-inst">Installed</span>`
       : `<span class="model-badge-s badge-noinst">Not installed</span>`;
-    const folderLink = inst
-      ? `<button class="model-link-s" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>`
-      : `<button class="model-link-s" onclick="promptDownloadModel('${m.id}')">Download ↓</button>`;
     const trashBtn = inst && !sel
-      ? `<button class="model-trash-btn" title="Delete model" onclick="confirmDeleteModel(event,'${m.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`
+      ? `<button class="model-trash-btn" title="Delete model" onclick="confirmDeleteModel(event,'${m.id}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`
       : '';
+    const folderLink = inst
+      ? `<button class="model-link-s" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>${trashBtn}`
+      : `<button class="model-link-s" onclick="promptDownloadModel('${m.id}')">Download ↓</button>`;
     return `<div class="${cls}" ${click}>
       <div class="${rCls}"></div>
       <div class="model-info-s">
@@ -748,10 +748,7 @@ function renderModelCards(cur, local) {
           ${folderLink}
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
-        <span class="model-size-s">${esc(m.size)}</span>
-        ${trashBtn}
-      </div>
+      <span class="model-size-s">${esc(m.size)}</span>
     </div>`;
   }).join('');
 }

@@ -327,7 +327,7 @@ body {
 .model-link { font-size: 10px; color: #52525b; background: none; border: none; padding: 0; margin-top: 5px; cursor: pointer; font-family: inherit; transition: color 150ms; display: inline-block; }
 .model-link:hover { color: var(--accent); }
 .model-size { font-size: 12px; font-weight: 600; color: #6b7280; flex-shrink: 0; }
-.model-trash-btn { background:none; border:none; padding:2px 4px; cursor:pointer; color:#3f3f46; transition:color 150ms; flex-shrink:0; line-height:1; display:block; margin-top:4px; }
+.model-trash-btn { background:none; border:none; padding:0 2px; cursor:pointer; color:#3f3f46; transition:color 150ms; flex-shrink:0; line-height:1; display:inline-flex; align-items:center; margin-top:5px; }
 .model-trash-btn:hover { color:#f87171; }
 .model-card.selected .model-size { color: var(--accent); }
 
@@ -803,12 +803,15 @@ function renderModels() {
     const inst = localModels.includes(m.id);
     const sel  = m.id === selectedModel;
     const instBadge = inst ? '<span class="model-installed-badge">Installed</span>' : '';
-    const link = inst
-      ? `<button class="model-link" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>`
-      : `<button class="model-link" onclick="openModelHF(event,'${m.id}')">HuggingFace ↗</button>`;
     const trashBtn = inst && !sel
-      ? `<button class="model-trash-btn" title="Delete model" onclick="confirmDeleteModel(event,'${m.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`
+      ? `<button class="model-trash-btn" title="Delete model" onclick="confirmDeleteModel(event,'${m.id}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`
       : '';
+    const links = inst
+      ? `<div style="display:inline-flex;align-items:center;gap:8px;margin-top:5px">
+           <button class="model-link" onclick="openModelFolder(event,'${m.id}')">Show in Finder ↗</button>
+           ${trashBtn}
+         </div>`
+      : `<button class="model-link" onclick="openModelHF(event,'${m.id}')">HuggingFace ↗</button>`;
     return `
     <div class="model-card ${sel?'selected':''}" id="mc-${m.id}" onclick="selectModel('${m.id}')">
       <div class="model-radio ${sel?'selected':''}"></div>
@@ -819,12 +822,9 @@ function renderModels() {
           ${instBadge}
         </div>
         <div class="model-desc">${m.desc}</div>
-        ${link}
+        ${links}
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0">
-        <div class="model-size">${m.size}</div>
-        ${trashBtn}
-      </div>
+      <div class="model-size">${m.size}</div>
     </div>`;
   }).join('');
 }
