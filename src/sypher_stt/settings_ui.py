@@ -1024,11 +1024,13 @@ function renderStats(c) {
   const mn   = now.toLocaleString('en-US', {month: 'long'});
   const days = statsData.days;
   const mp   = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
-  const wkCut = _filterCutoff('week', now);
-  const q3Cut = _filterCutoff('3months', now);
+  const wkCut  = _filterCutoff('week', now);
+  const q3Cut  = _filterCutoff('3months', now);
+  const todCut = _isoDate(now);
   let tw = 0, tc = 0, ta = 0;
   Object.entries(days).forEach(([dt, d]) => {
-    const inc = _statFilter === 'month'   ? dt.startsWith(mp)
+    const inc = _statFilter === 'today'   ? dt === todCut
+              : _statFilter === 'month'   ? dt.startsWith(mp)
               : _statFilter === 'week'    ? dt >= wkCut
               : _statFilter === '3months' ? dt >= q3Cut
               : true;
@@ -1042,9 +1044,9 @@ function renderStats(c) {
   const valueSaved = (savedSec >= 0 && hourlyRate > 0) ? (savedSec / 3600) * hourlyRate : -1;
   const chart = _buildChartFiltered(days, _statFilter);
   const maxW  = Math.max(...chart.map(d => d.w), 1);
-  const filterLabel = {week:'This week', month:mn+' '+now.getFullYear(), '3months':'Last 3 months', all:'All time'}[_statFilter];
-  const chartTitle  = {week:'Daily words — this week', month:'Daily words — this month', '3months':'Weekly words — last 3 months', all:'Weekly words — all time'}[_statFilter];
-  const FILTERS = [{f:'week',l:'Week'},{f:'month',l:'Month'},{f:'3months',l:'3 Months'},{f:'all',l:'All Time'}];
+  const filterLabel = {today:'Today', week:'This week', month:mn+' '+now.getFullYear(), '3months':'Last 3 months', all:'All time'}[_statFilter];
+  const chartTitle  = {today:'Words — today', week:'Daily words — this week', month:'Daily words — this month', '3months':'Weekly words — last 3 months', all:'Weekly words — all time'}[_statFilter];
+  const FILTERS = [{f:'today',l:'Today'},{f:'week',l:'Week'},{f:'month',l:'Month'},{f:'3months',l:'3 Months'},{f:'all',l:'All Time'}];
   const _eyeBtn = on => '<button onclick="toggleRateVisibility()" style="background:none;border:none;cursor:pointer;padding:0 2px;margin-left:3px;color:#9ca3af;vertical-align:middle;line-height:1">'
     + (on
       ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
@@ -1212,6 +1214,7 @@ function _buildChartWeekly(days, totalDays) {
 
 function _buildChartFiltered(days, filter) {
   const now = new Date();
+  if (filter === 'today')   return _buildChart(days, 1);
   if (filter === 'week')    return _buildChart(days, 7);
   if (filter === 'month')   return _buildChart(days, now.getDate());
   if (filter === '3months') return _buildChartWeekly(days, 91);
@@ -1886,14 +1889,15 @@ class SettingsWindow:
 
         elif action == "open_model_hf":
             model_id = body.get("id", "")
-            if model_id in _AVAILABLE_MODELS:
+            if re.fullmatch(r'[a-z0-9._-]+', model_id) and model_id in _AVAILABLE_MODELS:
                 subprocess.Popen(["open", f"https://huggingface.co/Systran/faster-whisper-{model_id}"])
 
         elif action == "open_model_folder":
             model_id = body.get("id", "")
             folder = _MODELS_DIR / model_id
             if (
-                model_id in _AVAILABLE_MODELS
+                re.fullmatch(r'[a-z0-9._-]+', model_id)
+                and model_id in _AVAILABLE_MODELS
                 and not folder.is_symlink()
                 and folder.is_dir()
                 and folder.resolve().is_relative_to(_MODELS_DIR.resolve())
@@ -1905,7 +1909,8 @@ class SettingsWindow:
             model_id = body.get("id", "")
             folder = _MODELS_DIR / model_id
             if (
-                model_id in _AVAILABLE_MODELS
+                re.fullmatch(r'[a-z0-9._-]+', model_id)
+                and model_id in _AVAILABLE_MODELS
                 and not folder.is_symlink()
                 and folder.is_dir()
                 and folder.resolve().is_relative_to(_MODELS_DIR.resolve())
