@@ -71,6 +71,7 @@ class SypherSTT:
         self._state_lock = threading.Lock()
         self._processing = False
         self._restart_requested = False
+        self._restart_run_sh: Optional[Path] = None
         self._transcribing_since: Optional[float] = None
 
         # Tracked child processes (one instance of each allowed at a time)
@@ -274,7 +275,7 @@ class SypherSTT:
         self._wizard_proc = None
 
     def _restart(self) -> None:
-        """Clean up and spawn a fresh process via run.sh, then let tray quit this one."""
+        """Clean up and signal main() to spawn a fresh process after lock release."""
         log.info("Restart requested — cleaning up.")
         self._hotkey_manager.stop()
         if self._recorder.is_recording:
@@ -282,23 +283,19 @@ class SypherSTT:
         self._terminate_subprocesses()
 
         # Locate run.sh via the project root stored by run.sh on every launch.
-        run_sh = None
+        # Store the path so main() can spawn AFTER releasing the SingleInstance lock,
+        # avoiding a race where the new process tries to acquire a still-held lock.
         root_file = APPDATA_DIR / ".project_root"
         if root_file.exists():
             try:
                 project_root = root_file.read_text(encoding="utf-8").strip()
                 candidate = Path(project_root) / "run.sh"
                 if candidate.exists():
-                    run_sh = candidate
+                    self._restart_run_sh = candidate
             except Exception as e:
                 log.warning("Could not read .project_root: %s", e)
 
-        if run_sh is not None:
-            log.info("Spawning fresh process via %s", run_sh)
-            subprocess.Popen([str(run_sh)], close_fds=True)
-        else:
-            log.info("run.sh not found — falling back to direct Python spawn.")
-            subprocess.Popen([sys.executable, "-m", "sypher_stt.app"], close_fds=True)
+        self._restart_requested = True
         # TrayApp._restart_app() calls rumps.quit_application() after this callback
 
     def _quit(self) -> None:
@@ -413,6 +410,7 @@ def main() -> None:
         sys.exit(1)
 
     restart_needed = False
+    restart_run_sh: Optional[Path] = None
     try:
         # ── First-run setup wizard ──────────────────────────────────────────
         # Run in a subprocess so its NSApplication run loop doesn't kill this
@@ -430,6 +428,7 @@ def main() -> None:
         app = SypherSTT()
         app.run()
         restart_needed = app._restart_requested
+        restart_run_sh = app._restart_run_sh
     except KeyboardInterrupt:
         log.info("Interrupted by user.")
     except Exception as e:
@@ -444,11 +443,15 @@ def main() -> None:
     # prevents NSStatusItem (menu bar icon) from appearing. SIGHUP survival is
     # handled by the SIG_IGN set at the top of main() instead.
     if restart_needed:
-        log.info("Spawning fresh process for update restart.")
-        subprocess.Popen(
-            [sys.executable, "-m", "sypher_stt.app"],
-            close_fds=True,
-        )
+        if restart_run_sh is not None and restart_run_sh.exists():
+            log.info("Spawning fresh process via %s", restart_run_sh)
+            subprocess.Popen([str(restart_run_sh)], close_fds=True)
+        else:
+            log.info("Spawning fresh process for restart.")
+            subprocess.Popen(
+                [sys.executable, "-m", "sypher_stt.app"],
+                close_fds=True,
+            )
 
 
 if __name__ == "__main__":
