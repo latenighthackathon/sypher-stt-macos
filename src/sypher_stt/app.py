@@ -10,6 +10,7 @@ Architecture note:
   State is a simple enum read by a rumps timer to update the icon.
 """
 
+import atexit
 import logging
 import shlex
 import shutil
@@ -410,8 +411,55 @@ def main() -> None:
         log.warning("Sypher STT is already running. Exiting.")
         sys.exit(1)
 
-    restart_needed = False
-    restart_run_sh: Optional[Path] = None
+    # ── atexit: release lock + spawn restart ───────────────────────────────
+    # NSApplication.terminate_() exits Python via SystemExit (a BaseException).
+    # Code after a try/finally block is skipped when SystemExit propagates, so
+    # the restart spawn must live in an atexit handler, which runs even during
+    # SystemExit-triggered interpreter shutdown.  The handler reads
+    # app._restart_requested directly — that flag is set by _restart() BEFORE
+    # rumps.quit_application() is called, so it's always True when needed.
+    app: Optional["SypherSTT"] = None
+
+    @atexit.register
+    def _on_exit() -> None:
+        guard.release()
+        if app is None or not app._restart_requested:
+            return
+        run_sh = app._restart_run_sh
+        if run_sh is not None and run_sh.exists():
+            _launched = False
+            try:
+                cmd = shlex.quote(str(run_sh))
+                result = subprocess.run(
+                    [
+                        "osascript",
+                        "-e", 'tell application "Terminal"',
+                        "-e", "activate",
+                        "-e", f'do script "bash {cmd}"',
+                        "-e", "end tell",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode == 0:
+                    log.info("Restart: opened new Terminal.app window via %s", run_sh)
+                    _launched = True
+                else:
+                    log.warning(
+                        "osascript exited %d: %s",
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
+            except Exception as e:
+                log.warning("osascript restart failed: %s", e)
+            if not _launched:
+                log.info("Falling back to direct spawn via %s", run_sh)
+                subprocess.Popen([str(run_sh)], close_fds=True)
+        else:
+            log.info("Spawning fresh process for restart.")
+            subprocess.Popen([sys.executable, "-m", "sypher_stt.app"], close_fds=True)
+
     try:
         # ── First-run setup wizard ──────────────────────────────────────────
         # Run in a subprocess so its NSApplication run loop doesn't kill this
@@ -428,63 +476,13 @@ def main() -> None:
         # ── Launch app ─────────────────────────────────────────────────────
         app = SypherSTT()
         app.run()
-        restart_needed = app._restart_requested
-        restart_run_sh = app._restart_run_sh
     except KeyboardInterrupt:
         log.info("Interrupted by user.")
     except Exception as e:
         log.critical("Unhandled exception: %s", e, exc_info=True)
         sys.exit(1)
-    finally:
-        guard.release()
-
-    # Spawn a fresh process after the lock is released so it can acquire it.
-    # Open a new Terminal.app window so the restarted process has Terminal as
-    # its responsible process (preserving Accessibility / hotkey attribution)
-    # and the user gets a fresh log stream.  Do NOT use start_new_session=True:
-    # setsid() on macOS can place the child in a different Mach bootstrap
-    # namespace from the Window Server, preventing NSStatusItem from appearing.
-    if restart_needed:
-        if restart_run_sh is not None and restart_run_sh.exists():
-            _launched = False
-            try:
-                cmd = shlex.quote(str(restart_run_sh))
-                # Run synchronously so we can check the exit code.
-                # Popen always "succeeds" (osascript starts) even when the
-                # AppleScript itself errors — we'd never know and the fallback
-                # would never fire.
-                result = subprocess.run(
-                    [
-                        "osascript",
-                        "-e", 'tell application "Terminal"',
-                        "-e", "activate",
-                        "-e", f'do script "bash {cmd}"',
-                        "-e", "end tell",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode == 0:
-                    log.info("Restart: opened new Terminal.app window via %s", restart_run_sh)
-                    _launched = True
-                else:
-                    log.warning(
-                        "osascript exited %d: %s",
-                        result.returncode,
-                        result.stderr.strip(),
-                    )
-            except Exception as e:
-                log.warning("osascript restart failed: %s", e)
-            if not _launched:
-                log.info("Falling back to direct spawn via %s", restart_run_sh)
-                subprocess.Popen([str(restart_run_sh)], close_fds=True)
-        else:
-            log.info("Spawning fresh process for restart.")
-            subprocess.Popen(
-                [sys.executable, "-m", "sypher_stt.app"],
-                close_fds=True,
-            )
+    # _on_exit() atexit handler runs on interpreter shutdown and handles
+    # both guard.release() and the conditional restart spawn.
 
 
 if __name__ == "__main__":
