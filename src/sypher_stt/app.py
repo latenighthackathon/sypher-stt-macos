@@ -446,21 +446,38 @@ def main() -> None:
     # namespace from the Window Server, preventing NSStatusItem from appearing.
     if restart_needed:
         if restart_run_sh is not None and restart_run_sh.exists():
+            _launched = False
             try:
                 cmd = shlex.quote(str(restart_run_sh))
-                subprocess.Popen(
+                # Run synchronously so we can check the exit code.
+                # Popen always "succeeds" (osascript starts) even when the
+                # AppleScript itself errors — we'd never know and the fallback
+                # would never fire.
+                result = subprocess.run(
                     [
                         "osascript",
-                        "-e", "tell application \"Terminal\"",
+                        "-e", 'tell application "Terminal"',
                         "-e", "activate",
-                        "-e", f"do script \"exec {cmd}\"",
+                        "-e", f'do script "bash {cmd}"',
                         "-e", "end tell",
                     ],
-                    close_fds=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
-                log.info("Restart: opened new Terminal window via %s", restart_run_sh)
+                if result.returncode == 0:
+                    log.info("Restart: opened new Terminal.app window via %s", restart_run_sh)
+                    _launched = True
+                else:
+                    log.warning(
+                        "osascript exited %d: %s",
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
             except Exception as e:
-                log.warning("osascript restart failed (%s) — falling back to direct spawn", e)
+                log.warning("osascript restart failed: %s", e)
+            if not _launched:
+                log.info("Falling back to direct spawn via %s", restart_run_sh)
                 subprocess.Popen([str(restart_run_sh)], close_fds=True)
         else:
             log.info("Spawning fresh process for restart.")
