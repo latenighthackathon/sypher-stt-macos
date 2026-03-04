@@ -12,6 +12,7 @@ Architecture note:
 
 import atexit
 import logging
+import os
 import shlex
 import shutil
 import signal
@@ -74,6 +75,7 @@ class SypherSTT:
         self._processing = False
         self._restart_requested = False
         self._restart_run_sh: Optional[Path] = None
+        self._restart_watcher_spawned: bool = False
         self._transcribing_since: Optional[float] = None
 
         # Tracked child processes (one instance of each allowed at a time)
@@ -277,16 +279,14 @@ class SypherSTT:
         self._wizard_proc = None
 
     def _restart(self) -> None:
-        """Clean up and signal main() to spawn a fresh process after lock release."""
+        """Clean up and spawn a Terminal.app watcher, then let tray quit this process."""
         log.info("Restart requested — cleaning up.")
         self._hotkey_manager.stop()
         if self._recorder.is_recording:
             self._recorder.stop_recording()
         self._terminate_subprocesses()
 
-        # Locate run.sh via the project root stored by run.sh on every launch.
-        # Store the path so main() can spawn AFTER releasing the SingleInstance lock,
-        # avoiding a race where the new process tries to acquire a still-held lock.
+        # Locate run.sh via the project root written by run.sh on every launch.
         root_file = APPDATA_DIR / ".project_root"
         if root_file.exists():
             try:
@@ -298,6 +298,34 @@ class SypherSTT:
                 log.warning("Could not read .project_root: %s", e)
 
         self._restart_requested = True
+
+        # Spawn the watcher NOW — while Python is fully alive — rather than in
+        # an atexit handler.  The shell command polls for this process's PID to
+        # disappear (guaranteeing the flock is released), then runs run.sh.
+        # This sidesteps all atexit / interpreter-shutdown timing issues.
+        run_sh = self._restart_run_sh
+        if run_sh is not None and run_sh.exists():
+            pid = os.getpid()
+            cmd = shlex.quote(str(run_sh))
+            # Poll until old PID is gone, then launch run.sh in the same window.
+            wait_cmd = f"while kill -0 {pid} 2>/dev/null; do sleep 0.1; done; bash {cmd}"
+            try:
+                subprocess.Popen(
+                    [
+                        "osascript",
+                        "-e", 'tell application "Terminal"',
+                        "-e", "activate",
+                        "-e", f'do script "{wait_cmd}"',
+                        "-e", "end tell",
+                    ],
+                    close_fds=True,
+                )
+                self._restart_watcher_spawned = True
+                log.info("Restart watcher spawned (watching PID %d).", pid)
+            except Exception as e:
+                log.error("Failed to spawn restart watcher: %s", e)
+        else:
+            log.warning("run.sh not found — restart watcher not spawned.")
         # TrayApp._restart_app() calls rumps.quit_application() after this callback
 
     def _quit(self) -> None:
@@ -423,41 +451,15 @@ def main() -> None:
     @atexit.register
     def _on_exit() -> None:
         guard.release()
-        if app is None or not app._restart_requested:
+        # Primary restart path: Terminal watcher already spawned in _restart().
+        # Only fall back to a direct spawn if the watcher couldn't be created.
+        if app is None or not app._restart_requested or app._restart_watcher_spawned:
             return
         run_sh = app._restart_run_sh
+        log.info("Watcher not spawned — falling back to direct spawn.")
         if run_sh is not None and run_sh.exists():
-            _launched = False
-            try:
-                cmd = shlex.quote(str(run_sh))
-                result = subprocess.run(
-                    [
-                        "osascript",
-                        "-e", 'tell application "Terminal"',
-                        "-e", "activate",
-                        "-e", f'do script "bash {cmd}"',
-                        "-e", "end tell",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode == 0:
-                    log.info("Restart: opened new Terminal.app window via %s", run_sh)
-                    _launched = True
-                else:
-                    log.warning(
-                        "osascript exited %d: %s",
-                        result.returncode,
-                        result.stderr.strip(),
-                    )
-            except Exception as e:
-                log.warning("osascript restart failed: %s", e)
-            if not _launched:
-                log.info("Falling back to direct spawn via %s", run_sh)
-                subprocess.Popen([str(run_sh)], close_fds=True)
+            subprocess.Popen([str(run_sh)], close_fds=True)
         else:
-            log.info("Spawning fresh process for restart.")
             subprocess.Popen([sys.executable, "-m", "sypher_stt.app"], close_fds=True)
 
     try:
