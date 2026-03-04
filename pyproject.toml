@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sypher-stt"
-version = "1.1.4"
+version = "1.1.5"
 description = "SypherSTT is a privacy-first, push-to-talk voice dictation for macOS. Hold a key, speak, release — transcribed text is pasted instantly. Fully offline and private: transcription runs locally via Faster Whisper, with no API calls, no cloud services, and no audio ever leaving your machine."
 readme = "README.md"
 license = { text = "MIT" }

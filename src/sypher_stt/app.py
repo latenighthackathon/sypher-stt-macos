@@ -11,6 +11,7 @@ Architecture note:
 """
 
 import logging
+import shlex
 import shutil
 import signal
 import subprocess
@@ -438,14 +439,29 @@ def main() -> None:
         guard.release()
 
     # Spawn a fresh process after the lock is released so it can acquire it.
-    # Do NOT use start_new_session=True: setsid() on macOS can place the child
-    # in a different Mach bootstrap namespace from the Window Server, which
-    # prevents NSStatusItem (menu bar icon) from appearing. SIGHUP survival is
-    # handled by the SIG_IGN set at the top of main() instead.
+    # Open a new Terminal.app window so the restarted process has Terminal as
+    # its responsible process (preserving Accessibility / hotkey attribution)
+    # and the user gets a fresh log stream.  Do NOT use start_new_session=True:
+    # setsid() on macOS can place the child in a different Mach bootstrap
+    # namespace from the Window Server, preventing NSStatusItem from appearing.
     if restart_needed:
         if restart_run_sh is not None and restart_run_sh.exists():
-            log.info("Spawning fresh process via %s", restart_run_sh)
-            subprocess.Popen([str(restart_run_sh)], close_fds=True)
+            try:
+                cmd = shlex.quote(str(restart_run_sh))
+                subprocess.Popen(
+                    [
+                        "osascript",
+                        "-e", "tell application \"Terminal\"",
+                        "-e", "activate",
+                        "-e", f"do script \"exec {cmd}\"",
+                        "-e", "end tell",
+                    ],
+                    close_fds=True,
+                )
+                log.info("Restart: opened new Terminal window via %s", restart_run_sh)
+            except Exception as e:
+                log.warning("osascript restart failed (%s) — falling back to direct spawn", e)
+                subprocess.Popen([str(restart_run_sh)], close_fds=True)
         else:
             log.info("Spawning fresh process for restart.")
             subprocess.Popen(
