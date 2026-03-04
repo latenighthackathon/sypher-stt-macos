@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import rumps
@@ -82,6 +83,7 @@ class SypherSTT:
             on_settings=self._open_settings,
             on_setup=self._open_setup_wizard,
             on_uninstall=self._uninstall,
+            on_restart=self._restart,
             state_getter=self._get_state,
             on_config_poll=self._poll_config_if_changed,
             hotkey_name=self._config.get("hotkey", DEFAULT_HOTKEY),
@@ -270,6 +272,34 @@ class SypherSTT:
                 proc.terminate()
         self._settings_proc = None
         self._wizard_proc = None
+
+    def _restart(self) -> None:
+        """Clean up and spawn a fresh process via run.sh, then let tray quit this one."""
+        log.info("Restart requested — cleaning up.")
+        self._hotkey_manager.stop()
+        if self._recorder.is_recording:
+            self._recorder.stop_recording()
+        self._terminate_subprocesses()
+
+        # Locate run.sh via the project root stored by run.sh on every launch.
+        run_sh = None
+        root_file = APPDATA_DIR / ".project_root"
+        if root_file.exists():
+            try:
+                project_root = root_file.read_text(encoding="utf-8").strip()
+                candidate = Path(project_root) / "run.sh"
+                if candidate.exists():
+                    run_sh = candidate
+            except Exception as e:
+                log.warning("Could not read .project_root: %s", e)
+
+        if run_sh is not None:
+            log.info("Spawning fresh process via %s", run_sh)
+            subprocess.Popen([str(run_sh)], close_fds=True)
+        else:
+            log.info("run.sh not found — falling back to direct Python spawn.")
+            subprocess.Popen([sys.executable, "-m", "sypher_stt.app"], close_fds=True)
+        # TrayApp._restart_app() calls rumps.quit_application() after this callback
 
     def _quit(self) -> None:
         log.info("Shutting down.")

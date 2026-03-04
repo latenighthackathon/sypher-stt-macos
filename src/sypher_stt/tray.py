@@ -60,6 +60,7 @@ class TrayApp(rumps.App):
         state_getter: Callable[[], AppState],
         on_setup: Optional[Callable[[], None]] = None,
         on_uninstall: Optional[Callable[[], None]] = None,
+        on_restart: Optional[Callable[[], None]] = None,
         on_config_poll: Optional[Callable[[], None]] = None,
         hotkey_name: str = "F5",
         version: str = "",
@@ -74,6 +75,7 @@ class TrayApp(rumps.App):
         self._on_settings_cb = on_settings
         self._on_setup_cb = on_setup
         self._on_uninstall_cb = on_uninstall
+        self._on_restart_cb = on_restart
         self._state_getter = state_getter
         self._on_config_poll = on_config_poll
         self._hotkey_name = hotkey_name
@@ -100,6 +102,7 @@ class TrayApp(rumps.App):
             None,
             rumps.MenuItem("Uninstall", callback=self._uninstall),
             None,
+            rumps.MenuItem("Restart", callback=self._restart_app),
             rumps.MenuItem("Quit", callback=self._quit),
         ]
 
@@ -196,6 +199,14 @@ class TrayApp(rumps.App):
                 self._on_uninstall_cb()
             except Exception as e:
                 log.error("Uninstall callback error: %s", e)
+
+    def _restart_app(self, _) -> None:
+        if self._on_restart_cb is not None:
+            try:
+                self._on_restart_cb()
+            except Exception as e:
+                log.error("Restart callback error: %s", e)
+        rumps.quit_application()
 
     def _quit(self, _) -> None:
         try:
