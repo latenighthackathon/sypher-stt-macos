@@ -8,12 +8,14 @@ Exact CSS variables from Glaido's compiled app:
 Run standalone:  python -m sypher_stt.settings_ui
 """
 
+import contextlib
 import json
 import logging
 import os
 import queue
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -32,12 +34,16 @@ from sypher_stt.constants import (
 from sypher_stt.utils import (
     secure_write_json as _secure_write_json,
     secure_write_text as _secure_write_text,
+    file_lock as _file_lock,
     check_ax as _check_ax,
     check_mic as _check_mic,
     get_local_models as _local_models,
     TT_PASSAGES as _TT_PASSAGES,
     SHARED_HOTKEY_JS as _SHARED_HOTKEY_JS,
 )
+
+# Sidecar lock coordinating stats.json writes with the main app process.
+_STATS_LOCK_PATH = _CONFIG_PATH.parent / "stats.json.lock"
 
 log = logging.getLogger(__name__)
 
@@ -970,7 +976,7 @@ function renderPermissions(c) {
   const micTxt = micOk
     ? '<span class="status-ok">✓ Granted</span>'
     : '<span class="status-bad">✗ Not granted</span>';
-  const appName = esc(cfg.proc_name || 'SypherSTT');
+  const appName = esc(cfg.proc_name || 'the app you launched SypherSTT from (Terminal, iTerm, or VS Code)');
   c.innerHTML = `
     <div class="content-title">Settings</div>
     <div class="content-desc">Accessibility and microphone access required by SypherSTT.</div>
@@ -979,8 +985,8 @@ function renderPermissions(c) {
         <div class="row-text">
           <div class="row-title">Accessibility access</div>
           <div class="row-desc">Required to detect your hotkey while you type in other apps.
-            In System Settings → Privacy &amp; Security → Accessibility, look for
-            <strong style="color:white">${appName}</strong>.</div>
+            In System Settings → Privacy &amp; Security → Accessibility, turn on
+            <strong style="color:white">${appName}</strong>, then <strong style="color:white">quit and relaunch ${appName}</strong> — macOS only applies this after a restart.</div>
           <div class="row-current">${axTxt}</div>
         </div>
         <button class="row-btn" onclick="post('open_ax',{})">Open System Settings</button>
@@ -989,11 +995,11 @@ function renderPermissions(c) {
         <div class="row-text">
           <div class="row-title">Microphone access</div>
           <div class="row-desc">Required to capture audio from your microphone.
-            In System Settings → Privacy &amp; Security → Microphone, look for
-            <strong style="color:white">${appName}</strong>.</div>
+            Click <strong style="color:white">Enable Microphone</strong> for the native Allow prompt. If it was denied
+            before, turn on <strong style="color:white">${appName}</strong> in System Settings → Privacy &amp; Security → Microphone.</div>
           <div class="row-current">${micTxt}</div>
         </div>
-        <button class="row-btn" onclick="post('open_mic',{})">Open System Settings</button>
+        <button class="row-btn" onclick="post('open_mic',{})">Enable Microphone</button>
       </div>
     </div>`;
 }
@@ -1649,14 +1655,38 @@ class SettingsWindow:
             def webView_didFinishNavigation_(self, wv, nav):
                 settings_ref._on_loaded()
 
+            def webView_decidePolicyForNavigationAction_decisionHandler_(self, wv, action, handler):
+                # The webview hosts only in-memory HTML and a JS->Python bridge.
+                # Divert http(s) links to the default browser and refuse to load
+                # any remote or local-file content in-place; allow about:/data:
+                # (the initial loadHTMLString navigation).
+                try:
+                    url = str(action.request().URL().absoluteString() or "")
+                except Exception:
+                    url = ""
+                low = url.lower()
+                if low.startswith("http://") or low.startswith("https://"):
+                    try:
+                        subprocess.Popen(["open", url])
+                    except Exception:
+                        pass
+                    handler(0)  # WKNavigationActionPolicyCancel
+                    return
+                if low.startswith("file://"):
+                    handler(0)
+                    return
+                handler(1)  # WKNavigationActionPolicyAllow
+
         # ── Script message handler — receives post() calls from JS ────────
         class MsgHandler(NSObject):
             def userContentController_didReceiveScriptMessage_(self, ctrl, msg):
+                action = ""
                 try:
                     body = json.loads(str(msg.body()))
-                    settings_ref._handle(body.get("action", ""), body)
+                    action = body.get("action", "")
+                    settings_ref._handle(action, body)
                 except Exception:
-                    pass
+                    log.error("settings action %r failed", action, exc_info=True)
 
         # ── Window delegate — block close/quit while key recorder is active ─
         class WinDelegate(NSObject):
@@ -1818,29 +1848,39 @@ class SettingsWindow:
 
     def _handle(self, action: str, body: dict):
         if action == "open_ax":
+            # The prompting check shows the native dialog and registers the
+            # process; only deep-link when not already trusted.
+            trusted = False
             try:
                 from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt  # type: ignore[import]
-                AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
+                trusted = bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
             except Exception:
                 pass
-            subprocess.Popen(["open",
-                "x-apple.systempreferences:"
-                "com.apple.settings.PrivacySecurity.extension"
-                "?Privacy_Accessibility"])
+            if not trusted:
+                subprocess.Popen(["open",
+                    "x-apple.systempreferences:"
+                    "com.apple.preference.security"
+                    "?Privacy_Accessibility"])
 
         elif action == "open_mic":
-            # Request mic permission — this registers SypherSTT in System Settings → Microphone
+            # not-determined → fire the native Allow prompt and do NOT open
+            # System Settings at the same time (that steals focus and orphans
+            # the alert).  Any other status → open System Settings.
+            status = None
             try:
                 from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # type: ignore[import]
-                AVCaptureDevice.requestAccessForMediaType_completionHandler_(
-                    AVMediaTypeAudio, lambda granted: None
-                )
+                status = int(AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio))
+                if status == 0:
+                    AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                        AVMediaTypeAudio, lambda granted, *_: None
+                    )
             except Exception:
-                pass
-            subprocess.Popen(["open",
-                "x-apple.systempreferences:"
-                "com.apple.settings.PrivacySecurity.extension"
-                "?Privacy_Microphone"])
+                status = None
+            if status != 0:
+                subprocess.Popen(["open",
+                    "x-apple.systempreferences:"
+                    "com.apple.preference.security"
+                    "?Privacy_Microphone"])
 
         elif action == "set_sound":
             self._cfg["sound_feedback"] = bool(body.get("value", True))
@@ -1962,13 +2002,6 @@ class SettingsWindow:
         elif action == "open_terminal":
             subprocess.Popen(["open", "-a", "Terminal"])
 
-        elif action == "copy_to_clipboard":
-            try:
-                import pyperclip
-                pyperclip.copy(body.get("text", ""))
-            except Exception as e:
-                log.warning("Clipboard copy failed: %s", e)
-
         elif action == "copy_update_cmd":
             try:
                 import pyperclip
@@ -2017,9 +2050,10 @@ class SettingsWindow:
             alert.addButtonWithTitle_("Cancel")
             alert.setAlertStyle_(1)  # NSAlertStyleWarning
             if alert.runModal() == 1000:  # NSAlertFirstButtonReturn
-                stats = self._load_stats_file()
-                stats["days"] = {}
-                self._write_stats_file(stats)
+                with _file_lock(_STATS_LOCK_PATH):
+                    stats = self._load_stats_file()
+                    stats["days"] = {}
+                    self._write_stats_file(stats)
                 self._send_stats()
         except Exception as e:
             log.error("NSAlert error: %s", e)
@@ -2050,15 +2084,17 @@ class SettingsWindow:
     def _save_wpm(self, wpm: int) -> None:
         if not (1 <= wpm <= 500):
             return
-        stats = self._load_stats_file()
-        stats["typing_wpm"] = wpm
-        self._write_stats_file(stats)
+        with _file_lock(_STATS_LOCK_PATH):
+            stats = self._load_stats_file()
+            stats["typing_wpm"] = wpm
+            self._write_stats_file(stats)
 
     def _save_rate(self, mode: str, value: float) -> None:
-        stats = self._load_stats_file()
-        stats["rate_mode"]  = mode
-        stats["rate_value"] = value
-        self._write_stats_file(stats)
+        with _file_lock(_STATS_LOCK_PATH):
+            stats = self._load_stats_file()
+            stats["rate_mode"]  = mode
+            stats["rate_value"] = value
+            self._write_stats_file(stats)
 
     # ------------------------------------------------------------------ #
     # Auto-update                                                          #
@@ -2087,7 +2123,9 @@ class SettingsWindow:
                 headers={"User-Agent": f"SypherSTT/{_VERSION}"},
             )
             with urllib.request.urlopen(req, timeout=10, context=_ctx) as resp:
-                data = json.loads(resp.read())
+                # Cap the read so a hostile/oversized response can't exhaust
+                # memory — a release JSON blob is well under 1 MB.
+                data = json.loads(resp.read(1_000_000))
             tag = data.get("tag_name", "").strip()
             clean = tag.removeprefix("v")
             if not _VERSION_RE.fullmatch(clean):
@@ -2172,13 +2210,21 @@ class SettingsWindow:
             args=(model_id, stop_event),
             daemon=True,
         ).start()
+        dest = _MODELS_DIR / model_id
         try:
             from huggingface_hub import snapshot_download
             snapshot_download(
                 repo_id=f"Systran/faster-whisper-{model_id}",
-                local_dir=str(_MODELS_DIR / model_id),
+                local_dir=str(dest),
                 local_dir_use_symlinks=False,
             )
+            # Defense in depth: confirm every downloaded path stays inside the
+            # model's directory (guards against a path-traversal entry in the
+            # remote repo escaping MODELS_DIR).
+            base = dest.resolve()
+            for p in dest.rglob("*"):
+                if not p.resolve().is_relative_to(base):
+                    raise RuntimeError(f"Unsafe path in downloaded model: {p}")
             stop_event.set()
             self._downloading = False
             local = _local_models()
@@ -2186,6 +2232,10 @@ class SettingsWindow:
         except Exception as e:
             stop_event.set()
             self._downloading = False
+            # Remove the partial/suspect download so a retry starts clean.
+            if dest.exists():
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(str(dest))
             self._js_queue.put(f"modelDownloadError('', {json.dumps(str(e))})")
 
     def _poll_download_progress(self, model_id: str, stop: threading.Event) -> None:

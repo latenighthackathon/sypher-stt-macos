@@ -45,39 +45,38 @@ def _ax_granted() -> bool:
         err = int(result[0])
         log.info("AX functional check error code: %d (%s)", err,
                  "kAXErrorSuccess" if err == 0 else "kAXErrorAPIDisabled" if err == -25211 else "other")
-        # kAXErrorAPIDisabled (-25211) means AX is definitively not granted.
-        # Any other error (e.g. -25204 kAXErrorCannotComplete) means the AX
-        # API IS accessible — the query itself failed for an unrelated reason.
-        return err != -25211
+        # Fail closed: only a clean success (kAXErrorSuccess == 0) proves the AX
+        # API is usable.  Any non-zero code (kAXErrorAPIDisabled -25211,
+        # kAXErrorCannotComplete -25204, etc.) is treated as NOT granted rather
+        # than assuming access we may not have.
+        return err == 0
     except Exception as e:
         log.info("AX functional check exception: %s", e)
     return False
 
 
 def _mic_granted() -> bool:
-    """Check Microphone access.
+    """Check Microphone access via the TCC authorization status.
 
-    AVFoundation returns 0 (not determined) for Python's own TCC entry when
-    launched from Terminal, even though mic works via Terminal's responsible-
-    process grant.  Only statuses 1/2 mean the mic is actually blocked.
-    Falls back to a sounddevice device query if AVFoundation is unavailable.
+    Returns True only for status 3 (authorized).  Status 0 (not determined)
+    means the user has not yet consented and is reported as NOT granted — the
+    setup wizard / settings "Enable Microphone" button is what triggers the
+    real consent prompt.  We deliberately do NOT fall back to a device-presence
+    probe: a microphone existing is unrelated to the user having granted access
+    (that fail-open made the badge lie).
     """
     try:
         from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # type: ignore[import]
-        status = int(AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio))
-        if status == 3:      # explicitly authorized for Python
-            return True
-        if status in (1, 2): # restricted or denied
-            return False
-        # status == 0 (not determined) — fall through to sounddevice check
+        return int(AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio)) == 3
     except Exception:
-        pass  # AVFoundation unavailable in this venv — fall through
-
-    # Confirm a usable input device is present (no TCC prompt, just HAL query).
+        pass  # AVFoundation unavailable in this venv — try the ctypes path
     try:
-        import sounddevice as sd
-        dev = sd.query_devices(kind="input")
-        return bool(dev["max_input_channels"] > 0)
+        import ctypes
+        import objc  # PyObjC core — always present since rumps requires it
+        ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/AVFoundation.framework/AVFoundation"
+        )
+        return int(objc.lookUpClass("AVCaptureDevice").authorizationStatusForMediaType_("soun")) == 3
     except Exception:
         return False
 

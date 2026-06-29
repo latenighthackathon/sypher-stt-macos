@@ -67,6 +67,16 @@ def paste_text(text: str, restore_clipboard: bool = True) -> None:
     if old_clipboard is not None:
         def _restore() -> None:
             time.sleep(0.15)
-            _set_clipboard(old_clipboard)
+            # Compare-and-swap: only restore the previous clipboard if ours is
+            # still the current value.  If the user copied something else in the
+            # interim, leave their copy alone instead of clobbering it.
+            try:
+                if _get_clipboard() == text:
+                    _set_clipboard(old_clipboard)
+                    log.debug("Restored previous clipboard contents.")
+                else:
+                    log.debug("Clipboard changed since paste; left as-is.")
+            except Exception as e:
+                log.debug("Clipboard restore failed: %s", e)
 
         threading.Thread(target=_restore, daemon=True).start()

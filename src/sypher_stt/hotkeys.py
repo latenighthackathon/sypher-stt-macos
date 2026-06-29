@@ -252,6 +252,11 @@ class HotkeyManager:
             self._stop_timer = None
             if not self._is_held:
                 return
+            # A re-press during the debounce window can re-satisfy the combo
+            # while this fire was already past the cancel point — if the key is
+            # effectively still held, keep recording instead of stopping.
+            if self._combo_satisfied():
+                return
             self._is_held = False
         try:
             self._on_stop()
@@ -291,9 +296,11 @@ class HotkeyManager:
     def hotkey_name(self, value: str) -> None:
         if not validate_hotkey(value):
             raise ValueError(f"Invalid hotkey '{value}'.")
-        self._hotkey_name = value
-        self._combo = parse_hotkey(value)
+        # Mutate name, combo, and held-state together under the lock so the
+        # press/release callbacks never see a half-updated combo.
         with self._held_lock:
+            self._hotkey_name = value
+            self._combo = parse_hotkey(value)
             if self._stop_timer is not None:
                 self._stop_timer.cancel()
                 self._stop_timer = None

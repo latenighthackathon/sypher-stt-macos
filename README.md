@@ -184,7 +184,7 @@ git fetch origin && git reset --hard origin/main
 - **macOS 15 Sequoia or macOS 26 Tahoe** (Apple Silicon or Intel)
 - **Python 3.9+**
 - **Microphone access**
-- **Accessibility permission** — required for global hotkey capture (see [below](#accessibility-permission-required-for-hotkey))
+- **Accessibility permission** — required for global hotkey capture (see [below](#permissions))
 
 **Python dependencies** (installed automatically by `run.sh` or `pip install -e .`):
 
@@ -226,15 +226,30 @@ Models are downloaded from [Hugging Face](https://huggingface.co/Systran) and st
 
 ---
 
-## Accessibility Permission (required for hotkey)
+## Permissions
 
-macOS requires **Accessibility permission** for any app that monitors global keyboard events.
+Sypher STT needs two macOS permissions. The setup wizard walks you through both on first run; this section is the reference.
+
+> **Which app gets the permission?** macOS attaches permissions to the *responsible process*. When you run from source via `./run.sh`, that's the **terminal you launched it from** — **Terminal**, **iTerm**, or **VS Code** — *not* "SypherSTT". A standalone `.app` build (via `build_app.sh`) gets the grants under **SypherSTT** itself. Grant whichever name the wizard shows.
+
+### Microphone (required to capture audio)
+
+The easiest path is the in-app prompt:
+
+1. In the setup wizard (or Settings → Permissions), click **Enable Microphone**
+2. macOS shows an **Allow** prompt the first time — click **Allow**
+
+If **no prompt appears**, microphone access was denied previously. macOS will not prompt again, so grant it manually: **System Settings → Privacy & Security → Microphone**, then turn on the app the wizard names.
+
+### Accessibility (required for the global hotkey)
+
+macOS requires **Accessibility permission** for any app that monitors global keyboard events. Unlike the microphone, this **cannot** be granted by a prompt — you must toggle it manually:
 
 1. Open **System Settings → Privacy & Security → Accessibility**
-2. Add your **Terminal** (or whichever app you launch Sypher STT from) and toggle it **on**
-3. Restart Sypher STT
+2. Turn on the toggle next to the app the wizard names (click **+** to add it if it isn't listed)
+3. **Quit and fully relaunch the app** — macOS only applies a new Accessibility grant after a restart, so the hotkey stays dead until you do. *(For source installs, quit the whole terminal window, not just Sypher STT.)*
 
-If skipped, the hotkey won't fire (the menu bar icon will still appear). The setup wizard covers this on first run.
+If skipped, the hotkey won't fire (the menu bar icon will still appear).
 
 ---
 

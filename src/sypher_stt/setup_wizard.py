@@ -554,28 +554,33 @@ body {
           <div style="font-size:10px;color:var(--accent);font-weight:700;margin-bottom:8px;letter-spacing:0.5px">ACCESSIBILITY &nbsp;<span id="ax-badge" style="color:#4ade80;font-size:10px"></span></div>
           <div class="steps-card-item">
             <div class="steps-num">1</div>
-            <div class="steps-text">Open <button onclick="post('open_ax',{})" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--accent-2);cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px">Privacy &amp; Security → Accessibility</button></div>
+            <div class="steps-text">Click <strong style="color:white">Enable Accessibility</strong> below, then in <button onclick="post('open_ax',{})" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--accent-2);cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px">Privacy &amp; Security → Accessibility</button></div>
           </div>
           <div class="steps-card-item">
             <div class="steps-num">2</div>
-            <div class="steps-text">Enable the toggle next to <strong style="color:white">__PROC_NAME__</strong></div>
+            <div class="steps-text">Turn on the toggle next to <strong style="color:white">__PROC_NAME__</strong> (click <strong style="color:white">+</strong> to add it if it isn't listed)</div>
+          </div>
+          <div class="steps-card-item">
+            <div class="steps-num">3</div>
+            <div class="steps-text">Quit &amp; relaunch <strong style="color:white">__PROC_NAME__</strong> — macOS only applies Accessibility after a restart, so the hotkey won't work until you do this</div>
           </div>
         </div>
         <div class="steps-card">
           <div style="font-size:10px;color:var(--accent);font-weight:700;margin-bottom:8px;letter-spacing:0.5px">MICROPHONE &nbsp;<span id="mic-badge" style="color:#4ade80;font-size:10px"></span></div>
           <div class="steps-card-item">
             <div class="steps-num">1</div>
-            <div class="steps-text">Open <button onclick="post('open_mic',{})" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--accent-2);cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px">Privacy &amp; Security → Microphone</button></div>
+            <div class="steps-text">Click <strong style="color:white">Enable Microphone</strong> below — macOS shows an <strong style="color:white">Allow</strong> prompt the first time</div>
           </div>
           <div class="steps-card-item">
             <div class="steps-num">2</div>
-            <div class="steps-text">Enable the toggle next to <strong style="color:white">__PROC_NAME__</strong></div>
+            <div class="steps-text">No prompt? It was denied before — open <button onclick="post('request_mic',{})" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--accent-2);cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px">Privacy &amp; Security → Microphone</button> and turn on <strong style="color:white">__PROC_NAME__</strong></div>
           </div>
         </div>
       </div>
       <div class="page-actions">
         <div class="page-cta">
           <button class="btn-primary" id="ax-open-btn" onclick="post('open_ax',{})">Enable Accessibility</button>
+          <button class="btn-primary" id="mic-open-btn" onclick="post('request_mic',{})">Enable Microphone</button>
           <button class="btn-primary" id="ax-next-btn" onclick="advance()" style="display:none">Next →</button>
         </div>
         <div class="page-nav">
@@ -941,22 +946,36 @@ function animateDone() {
 }
 
 // Called from Python
+function _bothPermsGranted() {
+  const ax  = document.getElementById('ax-badge');
+  const mic = document.getElementById('mic-badge');
+  const axOk  = ax  && ax.textContent.indexOf('Granted')  !== -1;
+  const micOk = mic && mic.textContent.indexOf('Granted') !== -1;
+  return axOk && micOk;
+}
+
+function _refreshPermActions() {
+  // Reveal "Next →" only once both permissions are granted.
+  const nb = document.getElementById('ax-next-btn');
+  if (nb) nb.style.display = _bothPermsGranted() ? '' : 'none';
+}
+
 function updateAxStatus(granted) {
   if (currentStep !== 1) return;
   const badge = document.getElementById('ax-badge');
-  if (badge) { badge.textContent = granted ? '✓ Granted' : ''; }
-  if (granted) {
-    const ob = document.getElementById('ax-open-btn');
-    const nb = document.getElementById('ax-next-btn');
-    if (ob) ob.style.display = 'none';
-    if (nb) nb.style.display = '';
-  }
+  if (badge) badge.textContent = granted ? '✓ Granted' : '';
+  const ob = document.getElementById('ax-open-btn');
+  if (ob) ob.style.display = granted ? 'none' : '';
+  _refreshPermActions();
 }
 
 function updateMicStatus(granted) {
   if (currentStep !== 1) return;
   const badge = document.getElementById('mic-badge');
   if (badge) badge.textContent = granted ? '✓ Granted' : '';
+  const ob = document.getElementById('mic-open-btn');
+  if (ob) ob.style.display = granted ? 'none' : '';
+  _refreshPermActions();
 }
 
 function updateProgress(pct, label, currMb, expMb) {
@@ -1251,8 +1270,22 @@ class SetupWizard:
                     except Exception:
                         pass
                     handler(0)   # WKNavigationActionPolicyCancel
-                else:
-                    handler(1)   # WKNavigationActionPolicyAllow
+                    return
+                # Divert http(s) links to the default browser and refuse to load
+                # remote/local-file content into this privileged webview; allow
+                # the in-memory about:/data: content.
+                low = url.lower()
+                if low.startswith("http://") or low.startswith("https://"):
+                    try:
+                        subprocess.Popen(["open", url])
+                    except Exception:
+                        pass
+                    handler(0)
+                    return
+                if low.startswith("file://"):
+                    handler(0)
+                    return
+                handler(1)   # WKNavigationActionPolicyAllow
 
         # ── Timer callbacks (NSObject so NSTimer can call them) ───────────
         class TimerTarget(NSObject):
@@ -1383,6 +1416,85 @@ class SetupWizard:
         if self._webview is not None:
             self._webview.evaluateJavaScript_completionHandler_(script, None)
 
+    def _request_mic(self) -> None:
+        """Trigger the native microphone consent flow.
+
+        Crucially this does NOT open System Settings at the same time as the
+        request: doing so steals foreground focus from this app and orphans the
+        modal TCC alert (the original bug — the prompt never appeared during
+        setup, only later on the first real recording).
+
+          • not-determined → requestAccess shows the native Allow prompt.
+          • denied/restricted → can't re-prompt; deep-link to System Settings.
+          • authorized → just reflect it.
+
+        The badge flips via the existing 0.8s pollAx timer (which runs on the
+        main thread), so the completion handler never has to touch the WebView
+        from AVFoundation's background queue.
+        """
+        cls = None
+        try:
+            from AVFoundation import AVCaptureDevice  # type: ignore[import]
+            cls = AVCaptureDevice
+        except Exception:
+            try:
+                import ctypes, objc
+                ctypes.cdll.LoadLibrary(
+                    "/System/Library/Frameworks/AVFoundation.framework/AVFoundation"
+                )
+                cls = objc.lookUpClass("AVCaptureDevice")
+            except Exception:
+                cls = None
+
+        status = None
+        if cls is not None:
+            try:
+                status = int(cls.authorizationStatusForMediaType_("soun"))
+            except Exception:
+                status = None
+
+        if status == 3:                      # already authorized
+            self._js("updateMicStatus(true)")
+            return
+        if status in (1, 2):                 # denied/restricted — cannot re-prompt
+            subprocess.Popen(["open",
+                "x-apple.systempreferences:"
+                "com.apple.preference.security"
+                "?Privacy_Microphone"])
+            return
+
+        # status == 0 (not determined) or unknown — request access (this is what
+        # actually shows the prompt).  No-op completion handler; the poll timer
+        # updates the badge on the main thread.
+        requested = False
+        if cls is not None:
+            try:
+                cls.requestAccessForMediaType_completionHandler_(
+                    "soun", lambda granted, *_: None
+                )
+                requested = True
+            except Exception:
+                requested = False
+
+        if not requested:
+            # AVFoundation unavailable, or no Info.plist usage string for this
+            # exact process: force the prompt by briefly opening a real input
+            # stream (the same trigger as the first recording).
+            self._force_mic_prompt()
+
+    def _force_mic_prompt(self) -> None:
+        """Open and immediately close an input stream to force the TCC prompt."""
+        def _run() -> None:
+            try:
+                import sounddevice as sd
+                s = sd.InputStream(samplerate=16000, channels=1, dtype="float32")
+                s.start()
+                s.stop()
+                s.close()
+            except Exception:
+                pass
+        threading.Thread(target=_run, daemon=True).start()
+
     def _handle(self, action: str, body: dict):
         if action == "close":
             self._cleanup()
@@ -1402,44 +1514,27 @@ class SetupWizard:
                 self._js(f"setExistingWpm({json.dumps(_get_saved_wpm())})")
 
         elif action == "open_ax":
-            # Register this process with the Accessibility subsystem so macOS
-            # shows the correct entry for the user to enable in System Settings.
+            # The prompting check shows the native "open System Settings" dialog
+            # AND registers this process in the Accessibility list.  Use its
+            # return value: if already trusted, just reflect it; otherwise
+            # deep-link to the pane.  (Accessibility cannot be granted purely
+            # programmatically — the user must flip the toggle and restart.)
+            trusted = False
             try:
                 from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt  # type: ignore[import]
-                AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
+                trusted = bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
             except Exception:
                 pass
-            # Open directly to Privacy > Accessibility (macOS 13+)
-            subprocess.Popen(["open",
-                "x-apple.systempreferences:"
-                "com.apple.settings.PrivacySecurity.extension"
-                "?Privacy_Accessibility"])
+            if trusted:
+                self._js("updateAxStatus(true)")
+            else:
+                subprocess.Popen(["open",
+                    "x-apple.systempreferences:"
+                    "com.apple.preference.security"
+                    "?Privacy_Accessibility"])
 
-        elif action == "open_mic":
-            try:
-                from AVFoundation import AVCaptureDevice  # type: ignore[import]
-                _cls = AVCaptureDevice
-            except Exception:
-                try:
-                    import ctypes, objc
-                    ctypes.cdll.LoadLibrary(
-                        "/System/Library/Frameworks/AVFoundation.framework/AVFoundation"
-                    )
-                    _cls = objc.lookUpClass("AVCaptureDevice")
-                except Exception:
-                    _cls = None
-            if _cls is not None:
-                try:
-                    _cls.requestAccessForMediaType_completionHandler_(
-                        "soun",  # AVMediaTypeAudio
-                        lambda granted, _=None: self._js(f"updateMicStatus({json.dumps(bool(granted))})"),
-                    )
-                except Exception:
-                    pass
-            subprocess.Popen(["open",
-                "x-apple.systempreferences:"
-                "com.apple.settings.PrivacySecurity.extension"
-                "?Privacy_Microphone"])
+        elif action == "request_mic":
+            self._request_mic()
 
         elif action == "start_download":
             if self._downloading:
@@ -1573,6 +1668,11 @@ class SetupWizard:
                 ignore_patterns=["*.msgpack", "*.h5", "flax_model*",
                                  "tf_model*", "*.ot", "*.pt"],
             )
+            # Defense in depth: confirm nothing escaped the model directory.
+            base = dest.resolve()
+            for p in dest.rglob("*"):
+                if not p.resolve().is_relative_to(base):
+                    raise RuntimeError(f"Unsafe path in downloaded model: {p}")
             self._download_success = True
         except Exception as e:
             log.error("Model download failed: %s", e)
