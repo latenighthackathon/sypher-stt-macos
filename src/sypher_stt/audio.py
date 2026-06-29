@@ -66,6 +66,10 @@ class AudioRecorder:
                     MAX_RECORDING_SECONDS,
                 )
                 self._recording.clear()
+                # Stop the stream promptly so the mic is released (privacy
+                # indicator off) instead of idling hot until the key is
+                # released.  Buffered chunks remain for stop_recording().
+                raise sd.CallbackStop
 
     def start_recording(self) -> None:
         """Begin capturing audio from the microphone."""
@@ -73,8 +77,9 @@ class AudioRecorder:
             self._chunks = []
             self._samples_recorded = 0
             self._recording.set()
+            stream = None
             try:
-                self._stream = sd.InputStream(
+                stream = sd.InputStream(
                     samplerate=SAMPLE_RATE,
                     channels=CHANNELS,
                     dtype="float32",
@@ -82,11 +87,20 @@ class AudioRecorder:
                     device=self._device,
                     callback=self._audio_callback,
                 )
-                self._stream.start()
-            except sd.PortAudioError as e:
+                stream.start()
+            except Exception as e:
+                # Never leak a half-constructed stream (a hot mic) on failure —
+                # close it, drop the reference, and disarm before re-raising.
                 self._recording.clear()
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+                self._stream = None
                 log.error("Failed to open microphone: %s", e)
                 raise
+            self._stream = stream
 
     def stop_recording(self) -> np.ndarray:
         """Stop capturing and return the recorded audio.
@@ -129,9 +143,19 @@ class AudioRecorder:
             return np.array([], dtype=np.float32)
 
     @property
+    def device(self) -> Optional[int]:
+        """The configured input device index (None = system default)."""
+        return self._device
+
+    @property
     def is_recording(self) -> bool:
-        """Whether the recorder is currently capturing audio."""
-        return self._recording.is_set()
+        """Whether a stream is live (capturing, or still open after auto-stop).
+
+        Stays True after the max-duration auto-stop until stop_recording()
+        closes the stream, so callers never mistake an open stream for idle and
+        leak it (e.g. when a config reload swaps the recorder).
+        """
+        return self._recording.is_set() or self._stream is not None
 
     @staticmethod
     def list_devices() -> list:

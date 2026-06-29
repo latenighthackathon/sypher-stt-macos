@@ -1,5 +1,7 @@
 """Shared utility helpers for Sypher STT."""
 
+import contextlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -57,21 +59,61 @@ def get_responsible_app_name() -> str:
 # ── Secure file I/O ───────────────────────────────────────────────────────────
 
 def secure_write_json(path: Path, payload: dict) -> None:
-    """Atomically write *payload* as JSON to *path* with 0o600 permissions."""
+    """Atomically write *payload* as JSON to *path* with 0o600 permissions.
+
+    Writes to a sibling temp file then os.replace()s it into place, so a
+    concurrent reader (or a crash mid-write) never sees a truncated file.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     os.fchmod(fd, 0o600)  # Enforce mode even if the file already existed
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp, path)  # atomic
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def secure_write_text(path: Path, text: str) -> None:
     """Atomically write *text* to *path* with 0o600 permissions."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     os.fchmod(fd, 0o600)  # Enforce mode even if the file already existed
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(text)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)  # atomic
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+@contextlib.contextmanager
+def file_lock(lock_path: Path):
+    """Best-effort cross-process advisory lock (flock) on a sidecar file.
+
+    Serializes read-modify-write sequences on a shared JSON file (e.g.
+    stats.json) between the main app and the settings subprocess.  Degrades to
+    no coordination — still yields — if flock is unavailable.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = None
+    try:
+        fd = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT, 0o600)
+        with contextlib.suppress(OSError):
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        if fd is not None:
+            with contextlib.suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
 
 # ── Permission checks ─────────────────────────────────────────────────────────
@@ -79,12 +121,12 @@ def secure_write_text(path: Path, text: str) -> None:
 def check_ax() -> bool:
     """Return True if Accessibility permission is granted.
 
-    Reads SYPHER_AX_GRANTED env var when set by the tray process, otherwise
-    queries AXIsProcessTrustedWithOptions directly.
+    A forwarded SYPHER_AX_GRANTED env var may only DOWNGRADE the verdict to
+    not-granted ("0"); a "1" is never trusted on its own and is always
+    re-verified with a live query, so a spoofed env var cannot assert a grant.
     """
-    env = os.environ.get("SYPHER_AX_GRANTED")
-    if env is not None:
-        return env == "1"
+    if os.environ.get("SYPHER_AX_GRANTED") == "0":
+        return False
     try:
         from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt  # type: ignore[import]
         return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: False}))
@@ -93,15 +135,15 @@ def check_ax() -> bool:
 
 
 def check_mic() -> bool:
-    """Return True if Microphone permission is granted.
+    """Return True if Microphone permission is granted (TCC status 3 only).
 
-    Reads SYPHER_MIC_GRANTED env var when set by the tray process, otherwise
-    queries AVCaptureDevice directly (with a ctypes fallback for environments
-    where pyobjc-framework-AVFoundation is not installed).
+    A forwarded SYPHER_MIC_GRANTED env var may only DOWNGRADE the verdict to
+    not-granted ("0"); a "1" is always re-verified via AVCaptureDevice so a
+    spoofed env var cannot assert a grant.  Status 0 (not determined) is
+    treated as NOT granted — the user has not yet consented.
     """
-    env = os.environ.get("SYPHER_MIC_GRANTED")
-    if env is not None:
-        return env == "1"
+    if os.environ.get("SYPHER_MIC_GRANTED") == "0":
+        return False
     try:
         from AVFoundation import AVCaptureDevice  # type: ignore[import]
         return int(AVCaptureDevice.authorizationStatusForMediaType_("soun")) == 3

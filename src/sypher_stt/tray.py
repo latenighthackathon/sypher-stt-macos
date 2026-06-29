@@ -26,6 +26,7 @@ class AppState(Enum):
     IDLE = "idle"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
+    ERROR = "error"
 
 
 # SF Symbol name for each state
@@ -33,6 +34,7 @@ _SF_SYMBOLS: dict[AppState, str] = {
     AppState.IDLE:         "mic",
     AppState.RECORDING:    "waveform",         # mic.fill clashes visually with macOS orange privacy indicator
     AppState.TRANSCRIBING: "ellipsis",
+    AppState.ERROR:        "exclamationmark.triangle",
 }
 
 # Emoji fallback for each state (used if SF Symbols unavailable)
@@ -40,6 +42,7 @@ STATE_TITLES: dict[AppState, str] = {
     AppState.IDLE:         "🎙",
     AppState.RECORDING:    "🔴",
     AppState.TRANSCRIBING: "⏳",
+    AppState.ERROR:        "⚠️",
 }
 
 # Human-readable status for the top menu item
@@ -47,6 +50,7 @@ STATE_LABELS: dict[AppState, str] = {
     AppState.IDLE:         "Ready",
     AppState.RECORDING:    "Recording...",
     AppState.TRANSCRIBING: "Transcribing...",
+    AppState.ERROR:        "Error — open Setup Wizard",
 }
 
 
@@ -80,6 +84,7 @@ class TrayApp(rumps.App):
         self._on_config_poll = on_config_poll
         self._hotkey_name = hotkey_name
         self._version = version
+        self._error_message: Optional[str] = None
 
         # SF Symbol images (populated in _setup_sf_icons; empty = use emoji fallback)
         self._state_images: dict[AppState, object] = {}
@@ -165,6 +170,8 @@ class TrayApp(rumps.App):
         label = STATE_LABELS[state]
         if state == AppState.IDLE:
             label = f"Ready — Hold {hotkey_display(self._hotkey_name)} to speak"
+        elif state == AppState.ERROR and self._error_message:
+            label = self._error_message
         self._status_item.title = label
 
     @rumps.timer(3.0)
@@ -225,6 +232,15 @@ class TrayApp(rumps.App):
             rumps.notification(title, "", message)
         except Exception as e:
             log.debug("Notification failed: %s", e)
+
+    def update_error(self, message: str) -> None:
+        """Set the status text shown while in the ERROR state.
+
+        Set this before transitioning the app state to ERROR so the next icon
+        tick (which only refreshes on state change) shows the right message.
+        """
+        self._error_message = message
+        self._last_state = None  # force the next tick to re-apply the label
 
     def update_hotkey_display(self, hotkey_name: str) -> None:
         """Refresh the hotkey shown in the status menu item."""

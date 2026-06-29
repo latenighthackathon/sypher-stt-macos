@@ -12,6 +12,23 @@ from logging.handlers import RotatingFileHandler
 from sypher_stt.constants import LOG_DIR
 
 
+class _SecureRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that enforces 0o600 on every (re)opened log file.
+
+    The base handler creates rotated backups with the default umask (often
+    0o644 / world-readable).  Since the log records per-transcription summaries,
+    every backup must stay user-only, not just the active file.
+    """
+
+    def _open(self):
+        stream = super()._open()
+        try:
+            os.fchmod(stream.fileno(), 0o600)
+        except OSError:
+            pass
+        return stream
+
+
 def setup_logging() -> logging.Logger:
     """Configure and return the application logger."""
     logger = logging.getLogger("sypher_stt")
@@ -30,7 +47,7 @@ def setup_logging() -> logging.Logger:
     fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
     os.fchmod(fd, 0o600)  # Enforce mode even if the file already existed
     os.close(fd)
-    file_handler = RotatingFileHandler(
+    file_handler = _SecureRotatingFileHandler(
         log_path,
         maxBytes=5 * 1024 * 1024,
         backupCount=3,

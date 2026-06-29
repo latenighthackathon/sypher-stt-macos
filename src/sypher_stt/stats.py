@@ -8,15 +8,18 @@ from the Settings → Stats tab at any time.
 
 import json
 import logging
-import os
 import threading
 from datetime import date
 
 log = logging.getLogger(__name__)
 
 from sypher_stt.constants import STATS_PATH
+from sypher_stt.utils import file_lock, secure_write_json
 
 _lock = threading.Lock()
+# Sidecar used to serialize read-modify-write with the settings subprocess,
+# which writes the same stats.json (WPM / rate / clear).
+_STATS_LOCK = STATS_PATH.with_name("stats.json.lock")
 
 
 def _load() -> dict:
@@ -32,15 +35,7 @@ def _load() -> dict:
 
 
 def _save(stats: dict) -> None:
-    STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(
-        str(STATS_PATH),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-        0o600,
-    )
-    os.fchmod(fd, 0o600)  # Enforce mode even if the file already existed
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(stats, f, indent=2)
+    secure_write_json(STATS_PATH, stats)  # atomic temp+replace, 0o600
 
 
 def record_transcription(words: int, chars: int, audio_seconds: float) -> None:
@@ -51,7 +46,7 @@ def record_transcription(words: int, chars: int, audio_seconds: float) -> None:
     if words <= 0 and chars <= 0:
         return
     today = date.today().isoformat()
-    with _lock:
+    with _lock, file_lock(_STATS_LOCK):
         stats = _load()
         day = stats.setdefault("days", {}).setdefault(
             today, {"words": 0, "chars": 0, "audio_seconds": 0.0}
@@ -64,7 +59,7 @@ def record_transcription(words: int, chars: int, audio_seconds: float) -> None:
 
 def clear_stats() -> None:
     """Remove all daily stats; preserve the user's typing WPM setting."""
-    with _lock:
+    with _lock, file_lock(_STATS_LOCK):
         stats = _load()
         stats["days"] = {}
         _save(stats)
@@ -74,7 +69,7 @@ def save_wpm(wpm: int) -> None:
     """Persist the user's measured typing speed (words per minute)."""
     if wpm <= 0:
         return
-    with _lock:
+    with _lock, file_lock(_STATS_LOCK):
         stats = _load()
         stats["typing_wpm"] = int(wpm)
         _save(stats)

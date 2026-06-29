@@ -46,6 +46,10 @@ log = logging.getLogger(__name__)
 # slow hardware) to avoid false positives. Only fires on genuine hangs.
 _TRANSCRIPTION_TIMEOUT_S = 90   # 90s — generous for any model/recording length
 
+# Sentinel distinguishing "no pending device change" from a pending change to
+# the system-default device (None is itself a valid audio_device value).
+_UNSET = object()
+
 
 class SypherSTT:
     """Main application class. Owns all components and drives the run loop."""
@@ -77,6 +81,17 @@ class SypherSTT:
         self._restart_run_sh: Optional[Path] = None
         self._restart_watcher_spawned: bool = False
         self._transcribing_since: Optional[float] = None
+
+        # Monotonic id for each transcription session.  Bumped when a new
+        # recording starts and when the watchdog fires, so a stale/superseded
+        # transcription thread can detect it no longer owns the session and
+        # must not paste or reset shared state.
+        self._generation: int = 0
+        # The exact recorder a hold started on, so release stops that same
+        # object even if a config reload swapped self._recorder.
+        self._active_recorder: Optional[AudioRecorder] = None
+        # Deferred audio-device change to apply once recording finishes.
+        self._pending_device = _UNSET
 
         # Tracked child processes (one instance of each allowed at a time)
         self._settings_proc: Optional[subprocess.Popen] = None
@@ -111,57 +126,110 @@ class SypherSTT:
     # Hotkey callbacks (called from pynput thread)                        #
     # ------------------------------------------------------------------ #
 
+    def _is_current(self, generation: int) -> bool:
+        """True if *generation* is still the active transcription session."""
+        with self._state_lock:
+            return self._generation == generation
+
     def _on_hotkey_press(self) -> None:
         with self._state_lock:
+            if self._state == AppState.RECORDING:
+                return  # spurious repeat press while already recording
             if self._processing:
-                return
-            self._state = AppState.RECORDING
+                busy = True
+                recorder = None
+            else:
+                busy = False
+                # Snapshot the recorder this hold owns so release stops the
+                # same object even if a config reload swaps self._recorder.
+                recorder = self._recorder
+                self._active_recorder = recorder
 
-        log.info("Recording started.")
+        if busy:
+            # Hotkey re-triggered while a previous transcription is still
+            # running — give the user feedback instead of silently dropping it.
+            log.info("Hotkey pressed while transcribing — ignored.")
+            if self._config.get("sound_feedback", True):
+                play_sound(self._config.get("sound_error", "Basso"))
+            return
+
         if self._config.get("sound_feedback", True):
             play_sound(self._config.get("sound_start", "Ping"))
 
         try:
-            self._recorder.start_recording()
+            recorder.start_recording()
         except Exception as e:
             log.error("Failed to start recording: %s", e)
-            self._set_state(AppState.IDLE)
+            with self._state_lock:
+                self._active_recorder = None
             self._tray.notify("Recording Error", "Failed to start recording. Check logs for details.")
             if self._config.get("sound_feedback", True):
                 play_sound(self._config.get("sound_error", "Basso"))
+            return
+
+        # Enter RECORDING only once the stream is actually live, so a release
+        # with no live recording is cleanly distinguishable below.
+        with self._state_lock:
+            if self._active_recorder is recorder:  # not cancelled meanwhile
+                self._state = AppState.RECORDING
+        log.info("Recording started.")
 
     def _on_hotkey_release(self) -> None:
         with self._state_lock:
-            if self._processing:
+            # Only transcribe when a recording is genuinely in progress.  Guards
+            # release-without-effective-press and re-entrancy.
+            if self._state != AppState.RECORDING or self._processing:
                 return
             self._processing = True
             self._state = AppState.TRANSCRIBING
             self._transcribing_since = time.monotonic()
+            self._generation += 1
+            generation = self._generation
+            recorder = self._active_recorder or self._recorder
+            self._active_recorder = None
 
         if self._config.get("sound_feedback", True):
             play_sound(self._config.get("sound_stop", "Blow"))
 
         log.info("Recording stopped, transcribing...")
-        audio = self._recorder.stop_recording()
+        audio = recorder.stop_recording()
 
         def _transcribe() -> None:
             try:
                 text = self._transcriber.transcribe(audio)
                 if text:
-                    paste_text(text)
-                    if self._config.get("record_stats", True):
-                        audio_secs = round(audio.size / SAMPLE_RATE, 1)
-                        log.info("Transcribed %d chars, %.1fs audio.", len(text), audio_secs)
-                        try:
-                            record_transcription(
-                                words=len(text.split()),
-                                chars=len(text),
-                                audio_seconds=audio_secs,
-                            )
-                        except Exception as e:
-                            log.warning("Stats record failed: %s", e)
+                    if not self._is_current(generation):
+                        log.warning("Transcription %d superseded — not pasting.", generation)
+                    else:
+                        paste_text(text)
+                        if self._config.get("record_stats", True):
+                            audio_secs = round(audio.size / SAMPLE_RATE, 1)
+                            log.info("Transcribed %d chars, %.1fs audio.", len(text), audio_secs)
+                            try:
+                                record_transcription(
+                                    words=len(text.split()),
+                                    chars=len(text),
+                                    audio_seconds=audio_secs,
+                                )
+                            except Exception as e:
+                                log.warning("Stats record failed: %s", e)
                 else:
+                    # Distinct feedback — the most common real failure mode was
+                    # previously indistinguishable from success.
                     log.info("No speech detected.")
+                    if self._config.get("sound_feedback", True):
+                        play_sound(self._config.get("sound_error", "Basso"))
+                    self._tray.notify(
+                        "No speech detected",
+                        "Nothing was transcribed — try speaking a little louder or longer.",
+                    )
+            except FileNotFoundError as e:
+                log.error("Model not available: %s", e)
+                self._set_state(AppState.ERROR)
+                self._tray.update_error("No model installed — open Setup Wizard")
+                self._tray.notify("Model Not Found", "Open the Setup Wizard to download a model.")
+                if self._config.get("sound_feedback", True):
+                    play_sound(self._config.get("sound_error", "Basso"))
             except Exception as e:
                 log.error("Transcription error: %s", e, exc_info=True)
                 self._tray.notify("Transcription Error", "Transcription failed. Check logs for details.")
@@ -169,9 +237,14 @@ class SypherSTT:
                     play_sound(self._config.get("sound_error", "Basso"))
             finally:
                 with self._state_lock:
-                    self._processing = False
-                    self._state = AppState.IDLE
-                    self._transcribing_since = None
+                    # Only the owning generation may reset shared state — a
+                    # watchdog-superseded stale thread must not clobber a fresh
+                    # session that started after it was abandoned.
+                    if self._generation == generation:
+                        self._processing = False
+                        self._transcribing_since = None
+                        if self._state == AppState.TRANSCRIBING:
+                            self._state = AppState.IDLE
 
         threading.Thread(target=_transcribe, daemon=True).start()
 
@@ -213,10 +286,28 @@ class SypherSTT:
         self._tray.update_hotkey_display(config.get("hotkey", DEFAULT_HOTKEY))
         self._transcriber.model_size = config.get("model", "base.en")
 
-        # Replace recorder if device changed
-        if self._recorder.is_recording:
-            self._recorder.stop_recording()
-        self._recorder = AudioRecorder(device=config.get("audio_device"))
+        # Rebuild the recorder only when the device actually changed, and never
+        # swap it out from under an in-progress hold — that orphans the live
+        # stream and silently drops the user's dictation.  If a hold is active,
+        # defer the change until recording finishes (applied by the poll timer).
+        new_device = config.get("audio_device")
+        with self._state_lock:
+            busy = self._state == AppState.RECORDING or self._processing
+            same_device = new_device == self._recorder.device
+            if same_device:
+                self._pending_device = _UNSET
+                action = "none"
+            elif busy or self._recorder.is_recording:
+                self._pending_device = new_device
+                action = "defer"
+            else:
+                self._recorder = AudioRecorder(device=new_device)
+                self._pending_device = _UNSET
+                action = "rebuilt"
+        if action == "rebuilt":
+            log.info("Audio device changed to %s; recorder rebuilt.", new_device)
+        elif action == "defer":
+            log.info("Audio device change to %s deferred until recording ends.", new_device)
 
     def _poll_config_if_changed(self) -> None:
         """Called by tray timer — reload config if the file was modified."""
@@ -235,12 +326,26 @@ class SypherSTT:
                     self._processing = False
                     self._state = AppState.IDLE
                     self._transcribing_since = None
+                    # Bump the generation so the abandoned thread can't later
+                    # paste or reset state over a fresh session.
+                    self._generation += 1
                     _watchdog_fired = True
                 else:
                     log.debug("Transcription in progress (%.0fs elapsed).", elapsed)
         if _watchdog_fired:
             if self._config.get("sound_feedback", True):
                 play_sound(self._config.get("sound_error", "Basso"))
+
+        # Apply a deferred audio-device change once recording has fully ended.
+        with self._state_lock:
+            pending = self._pending_device
+            idle = self._state == AppState.IDLE and not self._processing
+        if pending is not _UNSET and idle and not self._recorder.is_recording:
+            with self._state_lock:
+                self._pending_device = _UNSET
+            if pending != self._recorder.device:
+                self._recorder = AudioRecorder(device=pending)
+                log.info("Deferred audio device change applied: %s", pending)
 
         if not CONFIG_PATH.exists():
             return
@@ -258,11 +363,9 @@ class SypherSTT:
             try:
                 restart_flag.unlink(missing_ok=True)
                 log.info("Update restart flag detected — restarting.")
-                self._hotkey_manager.stop()
-                if self._recorder.is_recording:
-                    self._recorder.stop_recording()
-                self._terminate_subprocesses()
-                self._restart_requested = True
+                # Reuse the hardened restart path (cleanup + spawn watcher that
+                # re-runs run.sh) instead of relying on the atexit fallback.
+                self._restart()
                 rumps.quit_application()
             except Exception as e:
                 log.error("Auto-restart failed: %s", e)
@@ -286,16 +389,12 @@ class SypherSTT:
             self._recorder.stop_recording()
         self._terminate_subprocesses()
 
-        # Locate run.sh via the project root written by run.sh on every launch.
-        root_file = APPDATA_DIR / ".project_root"
-        if root_file.exists():
-            try:
-                project_root = root_file.read_text(encoding="utf-8").strip()
-                candidate = Path(project_root) / "run.sh"
-                if candidate.exists():
-                    self._restart_run_sh = candidate
-            except Exception as e:
-                log.warning("Could not read .project_root: %s", e)
+        # Derive run.sh from the running module (trusted) rather than the
+        # world-writable .project_root hint file — a tampered hint must not be
+        # able to redirect Restart to attacker-chosen code.
+        from sypher_stt.constants import RUN_SH
+        if RUN_SH.exists():
+            self._restart_run_sh = RUN_SH
 
         self._restart_requested = True
 
@@ -307,15 +406,22 @@ class SypherSTT:
         if run_sh is not None and run_sh.exists():
             pid = os.getpid()
             cmd = shlex.quote(str(run_sh))
-            # Poll until old PID is gone, then launch run.sh in the same window.
+            # Poll until this PID is gone (so the flock is released), then launch
+            # run.sh in the same window.  (PID identity isn't perfectly stable,
+            # but the flock LOCK_NB backstop prevents any double-launch.)
             wait_cmd = f"while kill -0 {pid} 2>/dev/null; do sleep 0.1; done; bash {cmd}"
+            # The command is embedded in an AppleScript `do script "..."` double-
+            # quoted literal; escape backslashes and double-quotes (the shell
+            # layer is already handled by shlex.quote above) so an install path
+            # containing " or \ can't corrupt the statement.
+            as_cmd = wait_cmd.replace("\\", "\\\\").replace('"', '\\"')
             try:
                 subprocess.Popen(
                     [
                         "osascript",
                         "-e", 'tell application "Terminal"',
                         "-e", "activate",
-                        "-e", f'do script "{wait_cmd}"',
+                        "-e", f'do script "{as_cmd}"',
                         "-e", "end tell",
                     ],
                     close_fds=True,
@@ -377,18 +483,25 @@ class SypherSTT:
         try:
             self._transcriber.ensure_model()
             log.info("Model ready.")
+            # Clear any prior model-error state now that a model is loaded.
+            if self._get_state() == AppState.ERROR:
+                self._set_state(AppState.IDLE)
             self._tray.notify(
                 "Sypher STT",
                 f"Model loaded. Hold {hotkey_display(self._config.get('hotkey', DEFAULT_HOTKEY))} to speak.",
             )
         except FileNotFoundError as e:
             log.error("%s", e)
+            self._tray.update_error("No model installed — open Setup Wizard")
+            self._set_state(AppState.ERROR)
             self._tray.notify(
                 "Model Not Found",
-                "Run: python scripts/download_model.py",
+                "Open the Setup Wizard to download a model.",
             )
         except Exception as e:
             log.error("Failed to load model: %s", e)
+            self._tray.update_error("Model failed to load — see logs")
+            self._set_state(AppState.ERROR)
             self._tray.notify("Model Error", "Failed to load model. Check logs for details.")
 
     # ------------------------------------------------------------------ #

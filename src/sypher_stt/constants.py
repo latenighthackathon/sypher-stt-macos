@@ -10,12 +10,25 @@ APP_NAME = "SypherSTT"
 # Paths — resolved at import time
 _root = Path(__file__).resolve().parent.parent.parent  # project root
 
+# Trusted install paths derived from the running module — used by the restart
+# flow instead of a world-writable hint file, so a tampered .project_root can
+# never redirect a relaunch to attacker-chosen code.
+PROJECT_ROOT = _root
+RUN_SH = _root / "run.sh"
+
 # Use the passwd-database home dir — cannot be spoofed by setting $HOME.
 _real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 # macOS: ~/Library/Application Support/SypherSTT/
 APPDATA_DIR = _real_home / "Library" / "Application Support" / APP_NAME
 APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+# User-only: enforce 0o700 even if the directory pre-existed with a looser mode,
+# so the world-readable .project_root / lock hints can't be inspected or
+# tampered with by other local accounts.
+try:
+    os.chmod(APPDATA_DIR, 0o700)
+except OSError:
+    pass
 
 # SYPHER_MODELS_DIR can be set to store models outside the project tree
 # (e.g. ~/Library/Application Support/SypherSTT/models).  Falls back to
@@ -25,7 +38,15 @@ _models_env = os.getenv("SYPHER_MODELS_DIR")
 if _models_env:
     _models_candidate = Path(_models_env).resolve()
     # Reject paths outside Application Support/SypherSTT (prevents $HOME spoofing).
-    MODELS_DIR = _models_candidate if _models_candidate.is_relative_to(APPDATA_DIR) else _root / "models"
+    if _models_candidate.is_relative_to(APPDATA_DIR.resolve()):
+        MODELS_DIR = _models_candidate
+    else:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "SYPHER_MODELS_DIR %r is outside %s — ignoring, using project models/.",
+            _models_env, APPDATA_DIR,
+        )
+        MODELS_DIR = (_root / "models").resolve()
 else:
     MODELS_DIR = (_root / "models").resolve()
 

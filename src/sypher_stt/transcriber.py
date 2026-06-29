@@ -97,6 +97,14 @@ class Transcriber:
         self.ensure_model()
         with self._load_lock:
             model = self._model  # hold lock to guard against concurrent model_size setter
+        if model is None:
+            # The model_size setter nulled the model between ensure and snapshot
+            # (a concurrent config change) — reload once and retry.
+            self.ensure_model()
+            with self._load_lock:
+                model = self._model
+            if model is None:
+                return ""
 
         log.info("Starting transcription of %.1fs audio…", audio.size / 16000)
         with warnings.catch_warnings():
