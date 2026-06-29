@@ -1846,26 +1846,34 @@ class SettingsWindow:
         if self._webview is not None:
             self._webview.evaluateJavaScript_completionHandler_(script, None)
 
+    def _open_settings_pane(self, anchor: str) -> None:
+        """Open System Settings to a Privacy & Security pane (macOS 13+ / Tahoe).
+
+        Uses the modern `com.apple.settings.PrivacySecurity.extension` scheme;
+        the legacy `com.apple.preference.security` form is unreliable on the
+        rebuilt System Settings app (Ventura and later, incl. macOS 26).
+        """
+        subprocess.Popen([
+            "open",
+            f"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}",
+        ])
+
     def _handle(self, action: str, body: dict):
         if action == "open_ax":
-            # The prompting check shows the native dialog and registers the
-            # process; only deep-link when not already trusted.
-            trusted = False
+            # Button is labeled "Open System Settings" — always open the
+            # Accessibility pane; also (re)register the process via the trust
+            # prompt so it shows up in the list.
             try:
                 from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt  # type: ignore[import]
-                trusted = bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
+                AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
             except Exception:
                 pass
-            if not trusted:
-                subprocess.Popen(["open",
-                    "x-apple.systempreferences:"
-                    "com.apple.preference.security"
-                    "?Privacy_Accessibility"])
+            self._open_settings_pane("Privacy_Accessibility")
 
         elif action == "open_mic":
             # not-determined → fire the native Allow prompt and do NOT open
             # System Settings at the same time (that steals focus and orphans
-            # the alert).  Any other status → open System Settings.
+            # the alert).  Any other status → open the Microphone pane.
             status = None
             try:
                 from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # type: ignore[import]
@@ -1877,10 +1885,7 @@ class SettingsWindow:
             except Exception:
                 status = None
             if status != 0:
-                subprocess.Popen(["open",
-                    "x-apple.systempreferences:"
-                    "com.apple.preference.security"
-                    "?Privacy_Microphone"])
+                self._open_settings_pane("Privacy_Microphone")
 
         elif action == "set_sound":
             self._cfg["sound_feedback"] = bool(body.get("value", True))

@@ -573,7 +573,7 @@ body {
           </div>
           <div class="steps-card-item">
             <div class="steps-num">2</div>
-            <div class="steps-text">No prompt? It was denied before — open <button onclick="post('request_mic',{})" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--accent-2);cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px">Privacy &amp; Security → Microphone</button> and turn on <strong style="color:white">__PROC_NAME__</strong></div>
+            <div class="steps-text">No prompt? It was denied before — open <button onclick="post('open_mic_pane',{})" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--accent-2);cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px">Privacy &amp; Security → Microphone</button> and turn on <strong style="color:white">__PROC_NAME__</strong></div>
           </div>
         </div>
       </div>
@@ -1457,10 +1457,7 @@ class SetupWizard:
             self._js("updateMicStatus(true)")
             return
         if status in (1, 2):                 # denied/restricted — cannot re-prompt
-            subprocess.Popen(["open",
-                "x-apple.systempreferences:"
-                "com.apple.preference.security"
-                "?Privacy_Microphone"])
+            self._open_settings_pane("Privacy_Microphone")
             return
 
         # status == 0 (not determined) or unknown — request access (this is what
@@ -1495,6 +1492,18 @@ class SetupWizard:
                 pass
         threading.Thread(target=_run, daemon=True).start()
 
+    def _open_settings_pane(self, anchor: str) -> None:
+        """Open System Settings to a Privacy & Security pane (macOS 13+ / Tahoe).
+
+        Uses the modern `com.apple.settings.PrivacySecurity.extension` scheme;
+        the legacy `com.apple.preference.security` form is unreliable on the
+        rebuilt System Settings app (Ventura and later, incl. macOS 26).
+        """
+        subprocess.Popen([
+            "open",
+            f"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}",
+        ])
+
     def _handle(self, action: str, body: dict):
         if action == "close":
             self._cleanup()
@@ -1514,27 +1523,24 @@ class SetupWizard:
                 self._js(f"setExistingWpm({json.dumps(_get_saved_wpm())})")
 
         elif action == "open_ax":
-            # The prompting check shows the native "open System Settings" dialog
-            # AND registers this process in the Accessibility list.  Use its
-            # return value: if already trusted, just reflect it; otherwise
-            # deep-link to the pane.  (Accessibility cannot be granted purely
-            # programmatically — the user must flip the toggle and restart.)
-            trusted = False
+            # Register/prompt (updates the badge) AND always open System Settings
+            # to the Accessibility pane.  Accessibility has no modal consent
+            # alert to orphan, and the user must flip the toggle there regardless
+            # — so open it even when already trusted (the link promises to).
             try:
                 from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt  # type: ignore[import]
                 trusted = bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
             except Exception:
-                pass
-            if trusted:
-                self._js("updateAxStatus(true)")
-            else:
-                subprocess.Popen(["open",
-                    "x-apple.systempreferences:"
-                    "com.apple.preference.security"
-                    "?Privacy_Accessibility"])
+                trusted = False
+            self._js(f"updateAxStatus({json.dumps(trusted)})")
+            self._open_settings_pane("Privacy_Accessibility")
 
         elif action == "request_mic":
             self._request_mic()
+
+        elif action == "open_mic_pane":
+            # The "open Settings manually" link — always opens the Microphone pane.
+            self._open_settings_pane("Privacy_Microphone")
 
         elif action == "start_download":
             if self._downloading:
